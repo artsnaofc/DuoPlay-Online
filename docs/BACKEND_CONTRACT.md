@@ -174,6 +174,11 @@ export interface ApiResponse<T = unknown> {
 - **Segurança Crítica**: O código **NÃO** é uma chave para fazer `SELECT` direto no banco via REST. Ele deve ser passado exclusivamente como parâmetro desta RPC.
 - **Parâmetros**: `p_code: string`, `p_as_spectator?: boolean`.
 - **Retorno**: `ApiResponse<{ room: RoomDTO, member: RoomMemberDTO }>`
+- **Validação de Estados da Sala**:
+  - `'closed'`: Rejeitada (`ROOM_NOT_FOUND`).
+  - `'starting'`: Rejeitada para novos participantes (`ROOM_STARTING`).
+  - `'in_game'`: Entrada como jogador rejeitada (`MATCH_ALREADY_IN_PROGRESS`). Espectadores podem entrar se houver capacidade.
+  - `'waiting'`: Jogadores e espectadores aceitos conforme vagas e slots.
 - **Idempotência**: Se o usuário já for membro da sala com o mesmo código, a RPC retorna o registro existente sem duplicar ou gerar erro.
 - **Concorrência**: Utiliza `SELECT ... FOR UPDATE` na linha da sala para garantir que o limite de membros não seja ultrapassado em requisições simultâneas.
 
@@ -183,7 +188,8 @@ export interface ApiResponse<T = unknown> {
 - **Finalidade**: Remove o usuário da sala.
 - **Parâmetros**: `p_room_id: string`.
 - **Retorno**: `ApiResponse<{ new_host_id: string | null, room_closed: boolean }>`
-- **Regras**: Se o anfitrião sair, elege o membro mais antigo restante como novo Host. Se a sala ficar vazia, define status como `'closed'`.
+- **Regra Room ≠ Match**: A saída de um membro da sala de espera NÃO altera nem remove retroativamente sua participação na composição congelada de `match_players`.
+- **Regras de Sucessão**: Se o anfitrião sair, elege o membro mais antigo restante como novo Host. Se a sala ficar vazia, define status como `'closed'`.
 
 ---
 
@@ -191,6 +197,9 @@ export interface ApiResponse<T = unknown> {
 - **Finalidade**: Alterna o estado de prontidão (`is_ready`) do jogador.
 - **Parâmetros**: `p_room_id: string`, `p_is_ready: boolean`.
 - **Retorno**: `ApiResponse<{ is_ready: boolean }>`
+- **Restrições Server-Side**:
+  - Permitido **exclusivamente** quando a sala estiver em status `'waiting'` (`INVALID_ROOM_STATUS`).
+  - Permitido **exclusivamente** para membros com papel de jogador (`role = 'player'`). Espectadores não participam do ciclo de ready (`SPECTATOR_CANNOT_READY`).
 - **Idempotência**: Enviar o mesmo valor consecutivamente resulta no mesmo estado sem efeitos colaterais.
 
 ---
@@ -201,11 +210,11 @@ export interface ApiResponse<T = unknown> {
 - **Retorno**: `ApiResponse<{ match: MatchDTO, players: MatchPlayerDTO[] }>`
 - **Atomicidade e Congelamento**:
   - Bloqueia a sala com `FOR UPDATE`.
-  - Verifica se o chamador é o `host_id` e se ambos os competidores estão prontos.
+  - Verifica se o chamador é o `host_id`, se a sala está em `'waiting'` e se todos os competidores (`role = 'player'`) estão prontos (`is_ready = true`).
   - Cria o registro em `matches` com status `'in_progress'`.
-  - **Congela a composição dos participantes** inserindo os competidores em `match_players`.
+  - **Congela a composição dos participantes** inserindo apenas competidores em `match_players` com `game_symbol = NULL` (a atribuição de símbolos é delegada ao validador do jogo na Fase 6). Espectadores não entram na partida.
   - Atualiza `rooms.status = 'in_game'` e vincula `rooms.current_match_id`.
-  - Idempotência: Se invocada enquanto a partida já está sendo criada, rejeita chamadas concorrentes com base no bloqueio e status da sala.
+  - Idempotência: Se invocada enquanto a partida já está em andamento, retorna o estado existente sem criar uma segunda Match.
 
 ---
 
@@ -213,9 +222,10 @@ export interface ApiResponse<T = unknown> {
 - **Finalidade**: Submete uma jogada de forma atômica e segura.
 - **Arquitetura de Despacho**: A RPC atua como orquestrador genérico. Ela:
   1. Identifica a partida e bloqueia com `SELECT ... FOR UPDATE`.
-  2. Identifica o `game_id` associado (ex: `'tic_tac_toe'`).
-  3. Delega a validação e transição de estado para o validador específico do jogo (`validate_tic_tac_toe_action`).
-  4. Persiste o novo `game_state`, avança o turno e redefine o `turn_deadline`.
+  2. Valida se o chamador pertence à composição congelada de `match_players` e se é o seu turno (`current_turn_player_id = auth.uid()`).
+  3. Despacha para `dispatch_game_action`, que realiza a **rotação determinística de turnos** em ordem de slots ascendente com wrap-around circular (`1 -> 2 -> ... -> N -> 1`), compatível com 1, 2 ou 3+ jogadores.
+  4. Registra o envelope oficial em `action_history` com `server_timestamp = now()`.
+  5. Atualiza o turno e redefine `turn_deadline = now() + INTERVAL '30 seconds'`.
 - **Parâmetros**:
   ```typescript
   {
@@ -223,21 +233,24 @@ export interface ApiResponse<T = unknown> {
     p_action_id: string; // UUID de idempotência gerado pelo cliente
     p_action_type: string;
     p_payload: any;
-    p_client_timestamp: number;
+    p_client_timestamp?: number;
   }
   ```
 - **Retorno**: `ApiResponse<{ match_id: string, turn_number: number, game_state: any, winner_id: string | null, is_draw: boolean, status: MatchStatus }>`
-- **Idempotência**: Se `p_action_id` já constar no histórico da partida ou se o `turn_number` já avançou, a RPC retorna o estado corrente sem reaplicar a ação.
+- **Idempotência**: Se `p_action_id` já constar no histórico da partida, a RPC retorna o estado corrente com flag idempotente sem reaplicar a ação.
 
 ---
 
-### 4.7. `finish_match` / `claim_timeout_victory`
-- **Finalidade**: Encerra uma partida por desistência voluntária ou reivindicação de vitória por estouro de prazo do servidor (Grace Period ou Turn Deadline).
-- **Parâmetros**: `p_match_id: string`, `p_reason: 'resignation' | 'timeout' | 'abandonment'`.
-- **Autoridade de Tempo**:
-  - Se `p_reason = 'timeout'`: o PostgreSQL compara a hora real do servidor (`clock_timestamp()`) com `match_players.grace_period_expires_at` ou `matches.turn_deadline`.
-  - O relógio do cliente é completamente desconsiderado. Se o prazo oficial não tiver expirado, rejeita com `GRACE_PERIOD_NOT_EXPIRED`.
-- **Estatísticas**: Atualiza `total_wins`, `total_losses` nos perfis dos competidores e encerra a partida.
+### 4.7. `finish_match`
+- **Finalidade**: Encerra uma partida por desistência voluntária ou estouro de prazo do servidor.
+- **Parâmetros**: `p_match_id: string`, `p_reason: 'resignation' | 'timeout' | 'abandonment' | 'normal'`, `p_winner_id?: string`, `p_is_draw?: boolean`.
+- **Blindagem contra Manipulação de Resultados pelo Cliente**:
+  - `normal`: **Rejeitado** para chamadas diretas de clientes na Fase 3 (`NORMAL_FINISH_NOT_AVAILABLE`). A conclusão normal é prerrogativa do validador server-side das regras do jogo (Fase 6).
+  - `abandonment`: **Rejeitado** para chamadas de clientes na Fase 3 (`ABANDONMENT_NOT_AVAILABLE`). Será habilitado na fase correspondente à implementação do Grace Period.
+  - `resignation`: O chamador desiste. Em partidas de 2 jogadores, o servidor consagra automaticamente o oponente como vencedor (`winner_id`). Em partidas de 3+ jogadores, rejeita resolução de vencedor único não definida (`MULTI_PLAYER_RESIGNATION_POLICY_PENDING`).
+  - `timeout`: O PostgreSQL valida obrigatoriamente `clock_timestamp() >= matches.turn_deadline`. O relógio do cliente é completamente desconsiderado. Em 2 jogadores, o oponente de quem estourou o turno pontua.
+  - `p_winner_id` e `p_is_draw` enviados pelo cliente são rigorosamente desconsiderados/não confiados.
+- **Estatísticas Oficiais**: Atualiza atomicamente `total_matches`, `total_wins`, `total_draws` e `total_losses` nos perfis dos participantes via contexto oficial do servidor (`duoplay.internal_system_operation`). Imutabilidade de `id` e `created_at` permanece garantida.
 
 ---
 

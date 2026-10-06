@@ -129,3 +129,26 @@ Na Fase 2, a tabela `public.profiles` foi submetida a hardening completo com as 
 - **Suíte de Testes de Segurança**:
   - 14 casos de teste implementados em `supabase/tests/profiles_rls_test.sql`, validando isolamento entre usuários, bloqueio de anon, bloqueio de forja de estatísticas e restrição de EXECUTE.
 
+---
+
+## 7. Hardening da Infraestrutura Multiplayer (Fase 3)
+
+A Fase 3 estabelece o PostgreSQL como autoridade absoluta sobre salas, membros e partidas através da migration `20261006010000_harden_multiplayer_core.sql`:
+
+1. **Blindagem contra Declaração Arbitrária de Resultados pelo Cliente**:
+   - `finish_match(normal)`: Rejeitado para chamadas diretas de clientes. Apenas o validador server-side das regras do jogo (Fase 6) poderá declarar vitória/empate normal.
+   - `finish_match(abandonment)`: Rejeitado nesta fase, evitando simulação falsa de desconexões antes da infraestrutura oficial de Grace Period.
+   - `finish_match(resignation)`: Determina o vencedor exclusivamente no servidor. Em 2 jogadores, consagra o oponente; em 3+ jogadores, rejeita resolução de vencedor único não configurada.
+   - `finish_match(timeout)`: Valida `clock_timestamp() >= matches.turn_deadline` com o relógio autoritativo do PostgreSQL, desconsiderando timestamps do cliente.
+   - Parâmetros `p_winner_id` e `p_is_draw` são desconsiderados de invocações do cliente.
+2. **Rotação Determinística de Turnos (1, 2, 3+ Jogadores)**:
+   - `dispatch_game_action` calcula o próximo jogador através do próximo `slot` em ordem ascendente, com wrap-around para o menor slot (`1 -> 2 -> ... -> N -> 1`), sem depender de consultas indeterminísticas.
+3. **Desacoplamento de Símbolos de Jogo**:
+   - `start_match` inicializa `game_symbol = NULL`, delegando a atribuição de símbolos (como X e O) à camada do jogo (Fase 6).
+4. **Validação Estrita de Estados de Sala e Membros**:
+   - `set_member_ready`: Rejeitado se a sala não estiver em `waiting` ou se o membro for `spectator`.
+   - `join_room_by_code`: Rejeita novos jogadores em salas `starting` ou `in_game`. Espectadores podem ingressar em salas `in_game` sem alterar `match_players`.
+5. **Imutabilidade Estrita de Perfis**:
+   - O trigger `enforce_profile_update_integrity` impede alteração de `id` e `created_at` mesmo em transações internas do sistema (`duoplay.internal_system_operation`).
+
+
