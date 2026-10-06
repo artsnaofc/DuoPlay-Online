@@ -170,6 +170,24 @@ Na Fase 4, a plataforma implementou o primeiro validador server-side (`validate_
 5. **Atomicidade e Anti-Corrida**:
    - Bloqueio pessimista via `FOR UPDATE` em `matches` assegura que duas jogadas simultâneas sejam serializadas: apenas a primeira compatível com a vez do jogador é processada; a segunda é rejeitada.
 
+---
+
+## 10. Segurança e Neutralidade da Network Engine (Fase 5)
+
+A **Network Engine** opera como uma camada de transporte transparente que respeita estritamente o princípio do servidor como autoridade:
+
+1. **Ausência de Credenciais Privadas no Cliente**:
+   - A camada utiliza unicamente o cliente Supabase público/publishable autenticado pelo JWT da sessão (`anon` / `authenticated`). Nenhuma secret key ou service role key é exposta.
+2. **PostgreSQL como Fonte Absoluta da Verdade**:
+   - Toda renderização e tomada de decisão de UI é governada pelo `GameSnapshot` retornado pelo PostgreSQL.
+   - O cliente nunca aplica *optimistic updates* como autoridade sobre o jogo nem persiste `game_state` em `localStorage` como fonte primária.
+3. **Proteção contra Inconsistência e Corridas**:
+   - Respostas de `submitAction` ou ciclos de `sync` reidratam o snapshot local com a verdade do servidor.
+   - A geração universal de `action_id` (UUID v4) garante idempotência estrita no banco contra toques duplos e retries de rede.
+4. **Isolamento de Erros e Não-Vazamento**:
+   - Erros de regras (`CELL_ALREADY_OCCUPIED`, `NOT_YOUR_TURN`, `INVALID_POSITION`) são normalizados com categorias tipadas, sem expor queries internas ou quebrar a integridade da aplicação.
+
+
 
 
 

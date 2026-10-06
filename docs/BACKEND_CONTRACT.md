@@ -1,18 +1,19 @@
 # Contrato de Backend — DuoPlay-Online
 
-> **Architecture Version:** 1.1  
-> **Status:** Active / Phase 4 Implemented (Tic Tac Toe Server-Side Validator Registered)
+> **Architecture Version:** 1.2  
+> **Status:** Active / Phase 5 Implemented (Game Snapshot & Network/Sync Engine Active)
 
 ---
 
 ## 1. Princípios do Contrato
 
-1. **PostgreSQL como Única Fonte da Verdade**: O estado oficial do sistema e das regras de jogo reside no banco de dados.
+1. **PostgreSQL como Única Fonte da Verdade**: O estado oficial do sistema, das regras de jogo e das sessões ativas reside exclusivamente no banco de dados.
 2. **Sem Mutações Arbitrárias via REST**: O Frontend não executa `INSERT`, `UPDATE` ou `DELETE` diretamente nas tabelas operacionais. Todas as modificações de estado passam por **RPCs com `SECURITY DEFINER`**.
-3. **Idempotência Obrigatória**: Operações críticas devem ser resilientes a envios duplicados provocados por double-click, latência, reconexões ou retries de rede.
-4. **Isolamento de Contratos**: O Frontend consome DTOs tipados expostos na pasta `src/types/` e serviços em `src/services/`, mapeados estritamente conforme este documento.
+3. **Idempotência Obrigatória**: Operações críticas devem ser resilientes a envios duplicados provocados por double-click, latência, reconexões ou retries de rede via `action_id`.
+4. **Isolamento de Contratos**: O Frontend consome DTOs tipados expostos na pasta `src/types/` e a camada universal `src/multiplayer/`, mapeados estritamente conforme este documento.
 5. **Validação Server-Side das Regras de Jogo**: O cliente envia exclusivamente uma *intenção de jogada* (ex: `place_mark` com `position`). O cálculo do estado resultante, alternância de turnos, vitória e empate é executado deterministicamente pelo validador server-side do respectivo jogo.
-6. **Escopo Social Futuro**: Entidades e RPCs sociais (`friendships`, `invites`, `room_messages`) estão documentadas para garantir extensibilidade futura, mas **NÃO** fazem parte do escopo da implementação inicial.
+6. **Realtime como Mecanismo de Notificação**: O Supabase Realtime atuará exclusivamente como canal de notificação e sincronização de eventos. O cliente nunca aceita eventos efêmeros como estado oficial sem sincronização com o PostgreSQL.
+7. **Escopo Social Futuro**: Entidades e RPCs sociais (`friendships`, `invites`, `room_messages`) estão documentadas para garantir extensibilidade futura, mas **NÃO** fazem parte do escopo da implementação inicial.
 
 ---
 
@@ -301,7 +302,47 @@ export interface ApiResponse<T = unknown> {
 
 ---
 
-### 4.8. RPCs Sociais (Arquitetura Futura — Fora do Escopo Inicial)
-- `send_room_invite(p_room_id, p_receiver_id)`: Envia convite de sala para um amigo.
-- `respond_room_invite(p_invite_id, p_accept)`: Aceita ou rejeita convite.
-- Documentadas conceitualmente; não serão criadas na implementação inicial.
+## 5. Camada Universal: Game Snapshot + Network/Sync Engine (Fase 5)
+
+A **Network Engine** (`src/multiplayer/network/`) implementa a camada universal de transporte, sincronização e gestão de snapshot da plataforma, consumida pelos controladores de jogo (`GameSessionController`) e hooks React (`useGameSession`).
+
+### 5.1. GameSnapshot (`GameSnapshot<TState>`)
+O snapshot é uma projeção imutável do estado oficial no PostgreSQL:
+
+```typescript
+export interface GameSnapshot<TState = unknown> {
+  matchId: MatchId;
+  roomId: RoomId | null;
+  gameId: GameId;
+  status: MatchStatus;
+  state: TState; // Estado específico do jogo (ex: TicTacToeState, SnakeState, PongState)
+  currentTurnPlayerId: UserId | null;
+  turnNumber: number;
+  turnDeadline: string | null;
+  winnerId: UserId | null;
+  isDraw: boolean;
+  finishReason: FinishReason | null;
+  players: MatchPlayerSnapshot[];
+  version: number; // Versão monotônica derivada estritamente do PostgreSQL
+  actionHistory: GameActionEnvelope[];
+  createdAt: string;
+  startedAt: string;
+  finishedAt: string | null;
+}
+```
+
+### 5.2. Estados de Sincronização (`SyncState`)
+O cliente reflete estados explícitos de conectividade e sincronização:
+- `synced`: Snapshot local alinhado com o PostgreSQL.
+- `syncing`: Requisição de leitura ou sincronização em andamento.
+- `stale`: Snapshot potencialmente desatualizado ou divergente.
+- `error`: Falha de rede ou de transporte no último ciclo.
+- `offline`: Dispositivo sem conexão de rede física.
+
+### 5.3. Operações Públicas da Network Engine
+- `getSnapshot(matchId)`: Leitura consistente de `matches` + `match_players` em uma única consulta relacional.
+- `submitAction(input)`: Validação local de formato e encaminhamento via RPC `submit_game_action` com `actionId` idempotente.
+- `sync(matchId)`: Sincronização autoritativa com o PostgreSQL.
+- `reconnect(matchId)`: Recuperação após restabelecimento de conexão ou reload.
+- `subscribe(matchId, listener)`: Contrato arquitetural preparado para Supabase Realtime (atualmente em modo stub até a fase correspondente).
+
