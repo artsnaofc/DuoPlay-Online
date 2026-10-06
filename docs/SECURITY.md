@@ -151,4 +151,22 @@ A Fase 3 estabelece o PostgreSQL como autoridade absoluta sobre salas, membros e
 5. **Imutabilidade Estrita de Perfis**:
    - O trigger `enforce_profile_update_integrity` impede alteração de `id` e `created_at` mesmo em transações internas do sistema (`duoplay.internal_system_operation`).
 
+---
+
+## 8. Gate de Ações e Validação Server-Side (Fase 3.2)
+
+A Fase 3.2 conclui o isolamento da infraestrutura de ações através da migration `20261006030000_gate_game_actions_until_validator.sql`:
+
+1. **Gate Obrigatório de Validador Server-Side**:
+   - Nenhuma ação enviada pelo cliente é tratada como jogada oficial enquanto não for processada e aprovada (`accepted = true`) por um validador server-side do respectivo `game_id`.
+   - Na ausência de um validador registrado para o jogo, `dispatch_game_action` lança a exceção `GAME_VALIDATOR_NOT_AVAILABLE` (`'P0030'`).
+2. **Integridade e Rollback Integral**:
+   - Sob ausência de validador ou em ações rejeitadas, a transação é revertida integralmente no PostgreSQL.
+   - `game_state`, `action_history`, `turn_number`, `current_turn_player_id`, `turn_deadline`, `winner_id` e `is_draw` permanecem absolutamente inalterados.
+3. **`action_history` Estritamente Oficial**:
+   - Apenas ações validadas e aceitas pelo servidor são registradas no `action_history`. Tentativas inválidas ou payloads arbitrários não poluem o histórico de auditoria/replay.
+4. **Neutralidade de Símbolos (`game_symbol`)**:
+   - `start_match` define `game_symbol = NULL` para todos os competidores em `match_players`. A infraestrutura multiplayer é agnóstica a símbolos (`X`, `O`, etc.), delegando essa responsabilidade aos validadores dos jogos na Fase 6.
+
+
 

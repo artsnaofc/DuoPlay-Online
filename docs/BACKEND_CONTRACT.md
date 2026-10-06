@@ -208,25 +208,30 @@ export interface ApiResponse<T = unknown> {
 - **Finalidade**: Anfitrião inicia a partida a partir da sala.
 - **Parâmetros**: `p_room_id: string`.
 - **Retorno**: `ApiResponse<{ match: MatchDTO, players: MatchPlayerDTO[] }>`
-- **Atomicidade e Congelamento**:
+- **Atomicidade, Desacoplamento e Congelamento**:
   - Bloqueia a sala com `FOR UPDATE`.
   - Verifica se o chamador é o `host_id`, se a sala está em `'waiting'` e se todos os competidores (`role = 'player'`) estão prontos (`is_ready = true`).
   - Cria o registro em `matches` com status `'in_progress'`.
-  - **Congela a composição dos participantes** inserindo apenas competidores em `match_players` com `game_symbol = NULL` (a atribuição de símbolos é delegada ao validador do jogo na Fase 6). Espectadores não entram na partida.
+  - **Congela a composição dos participantes**: insere apenas competidores em `match_players` com `game_symbol = NULL`. A infraestrutura é 100% agnóstica a símbolos (X/O) e regras de jogos específicos.
   - Atualiza `rooms.status = 'in_game'` e vincula `rooms.current_match_id`.
   - Idempotência: Se invocada enquanto a partida já está em andamento, retorna o estado existente sem criar uma segunda Match.
 
 ---
 
 ### 4.6. `submit_game_action`
-- **Finalidade**: Submete uma jogada de forma atômica e segura.
-- **Arquitetura de Despacho e Integridade de Estado**: A RPC atua como orquestrador genérico. Ela:
-  1. Identifica a partida e bloqueia com `SELECT ... FOR UPDATE`.
-  2. Valida se o chamador pertence à composição congelada de `match_players` e se é o seu turno (`current_turn_player_id = auth.uid()`).
-  3. Despacha para `dispatch_game_action`, que realiza a **rotação determinística de turnos** em ordem de slots ascendente com wrap-around circular (`1 -> 2 -> ... -> N -> 1`), compatível com 1, 2 ou 3+ jogadores.
-  4. **Não-contaminação de `game_state`**: O `matches.game_state` oficial **NÃO** é derivado do payload arbitrário do cliente. O payload é armazenado exclusivamente no envelope de auditoria/evento em `action_history`, e a mutação do `game_state` oficial é prerrogativa do validador server-side de regras do jogo (Fase 6).
-  5. Registra o envelope oficial em `action_history` com `server_timestamp = now()`.
-  6. Atualiza o turno e redefine `turn_deadline = now() + INTERVAL '30 seconds'`.
+- **Finalidade**: Submete uma jogada de forma atômica e estritamente subordinada ao validador de regras do jogo.
+- **Princípio Fundamental (Gate de Validação Server-Side)**:
+  - Uma ação **só pode produzir alteração oficial** (novo `game_state`, avanço de `turn_number`, mudança de `current_turn_player_id`, novo `turn_deadline` ou inserção em `action_history`) **após ser declarada formalmente válida** pelo validador server-side oficial do respectivo jogo.
+  - Se a partida estiver associada a um `game_id` cujo validador server-side ainda não esteja implementado ou registrado (como na Fase 3.2), a RPC é abortada via exceção com o código `GAME_VALIDATOR_NOT_AVAILABLE` (`'P0030'`).
+  - **Ausência de Validador**: Sob ausência de validador, a transação sofre rollback integral: `game_state`, `action_history`, `turn_number`, `current_turn_player_id`, `turn_deadline`, `winner_id` e `is_draw` permanecem absolutamente intactos.
+- **Arquitetura de Despacho**:
+  1. Autentica chamador (`auth.uid()`).
+  2. Identifica a partida e bloqueia com `SELECT ... FOR UPDATE`.
+  3. Valida se o chamador pertence à composição congelada de `match_players` e se é o seu turno (`current_turn_player_id = auth.uid()`).
+  4. Verifica idempotência por `action_id` contra ações já processadas no `action_history`.
+  5. Encaminha para `dispatch_game_action()`.
+  6. Valida aprovação explícita (`accepted = true`).
+  7. Persiste `game_state` validado, anexa ao `action_history` oficial (com `server_timestamp = now()`), avança o turno e redefine `turn_deadline = now() + INTERVAL '30 seconds'`.
 - **Parâmetros**:
   ```typescript
   {
@@ -238,7 +243,7 @@ export interface ApiResponse<T = unknown> {
   }
   ```
 - **Retorno**: `ApiResponse<{ match_id: string, turn_number: number, game_state: any, winner_id: string | null, is_draw: boolean, status: MatchStatus }>`
-- **Idempotência**: Se `p_action_id` já constar no histórico da partida, a RPC retorna o estado corrente com flag idempotente sem reaplicar a ação.
+- **Idempotência**: Se `p_action_id` já constar no histórico da partida, a RPC retorna o estado corrente com flag `idempotent: true` sem reaplicar a ação.
 
 ---
 
