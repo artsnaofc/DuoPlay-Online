@@ -55,13 +55,14 @@ export class NetworkEngineClient {
   }
 
   /**
-   * Assina atualizações de estado (contrato preparado para Realtime).
+   * Assina atualizações de estado via Supabase Realtime (com reconciliação autoritativa no PostgreSQL).
    */
   subscribe<TState = unknown>(
     matchId: string,
-    listener: MatchSnapshotListener<TState>
+    listener: MatchSnapshotListener<TState>,
+    onStatusChange?: (status: string) => void
   ): () => void {
-    return subscribeToMatch<TState>(matchId, listener);
+    return subscribeToMatch<TState>(matchId, listener, onStatusChange);
   }
 
   /**
