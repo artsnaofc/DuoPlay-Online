@@ -51,30 +51,35 @@ Este documento especifica o modelo relacional da plataforma DuoPlay-Online no Po
 
 ## 2. Entidades Principais
 
-### 2.1. `profiles` [Implementada na Fase 2]
-- **Status**: Implementada via migration versionada `supabase/migrations/20261005000000_create_profiles.sql`.
+### 2.1. `profiles` [Implementada na Fase 2 — Hardened]
+- **Status**: Implementada e blindada via migration versionada `supabase/migrations/20261005000000_create_profiles.sql`.
 - **Finalidade**: Perfil público do jogador, sincronizado automaticamente com o Supabase Auth (`auth.users`) através do trigger `on_auth_user_created` (`public.handle_new_user()`).
-- **Campos**:
-  - `id`: `UUID` (PK, referenciando `auth.users(id)` ON DELETE CASCADE).
-  - `username`: `VARCHAR(32)` (NOT NULL, UNIQUE) - Identificador legível (mínimo 3 caracteres).
-  - `display_name`: `VARCHAR(50)` (NOT NULL) - Nome formatado para exibição.
-  - `avatar_url`: `TEXT` (NULLABLE) - URL de avatar ou placeholder gerado.
-  - `total_matches`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
-  - `total_wins`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
-  - `total_draws`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
-  - `total_losses`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
-  - `created_at`: `TIMESTAMPTZ` (DEFAULT now(), NOT NULL).
-  - `updated_at`: `TIMESTAMPTZ` (DEFAULT now(), NOT NULL).
+- **Classificação e Controle de Acesso aos Campos**:
+  - **Campos Editáveis pelo Usuário**:
+    - `username`: `VARCHAR(32)` (NOT NULL, UNIQUE, CHECK 3 a 32 caracteres em `^[a-z0-9_]{3,32}$`).
+    - `display_name`: `VARCHAR(50)` (NOT NULL) - Nome visível nos lobbies e partidas.
+    - `avatar_url`: `TEXT` (NULLABLE) - URL de avatar do usuário.
+  - **Campos Gerenciados pelo Sistema**:
+    - `id`: `UUID` (PK, referenciando `auth.users(id)` ON DELETE CASCADE, imutável).
+    - `created_at`: `TIMESTAMPTZ` (DEFAULT now(), imutável pelo cliente).
+    - `updated_at`: `TIMESTAMPTZ` (DEFAULT now(), atualizado automaticamente pelo servidor).
+  - **Estatísticas Oficiais da Plataforma (Blindadas)**:
+    - `total_matches`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
+    - `total_wins`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
+    - `total_draws`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
+    - `total_losses`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
+    - *Regra Estrita de Segurança*: As estatísticas de partidas não podem ser alteradas diretamente pelo cliente. Futuramente serão modificadas somente por operações oficiais do backend/match.
 - **Índices Criados**:
   - `CREATE INDEX idx_profiles_username_lower ON public.profiles (LOWER(username));`
   - `CREATE INDEX idx_profiles_created_at ON public.profiles (created_at DESC);`
 - **Políticas de RLS**:
   - `profiles_select_own` (SELECT): `auth.uid() = id`
   - `profiles_insert_own` (INSERT): `auth.uid() = id`
-  - `profiles_update_own` (UPDATE): `auth.uid() = id` (protegendo linha existente e novo valor)
-- **Grants**:
-  - `REVOKE ALL ON public.profiles FROM PUBLIC, anon;`
-  - `GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;`
+  - `profiles_update_own` (UPDATE): `auth.uid() = id` (combinado com verificação estrita de integridade)
+- **Mecanismos de Blindagem de Dados**:
+  - **Permissões por Coluna (Column Grants)**: `REVOKE UPDATE ON public.profiles FROM authenticated; GRANT UPDATE (username, display_name, avatar_url) ON public.profiles TO authenticated;` — O cliente não possui privilégios de UPDATE nas colunas de estatísticas ou sistema.
+  - **Trigger de Integridade**: `trigger_profiles_update_integrity` executando `enforce_profile_update_integrity()`, rejeitando qualquer tentativa de mutação direta em `id`, `created_at` e estatísticas oficiais.
+  - **Restrição de EXECUTE**: `REVOKE ALL ON FUNCTION public.enforce_profile_update_integrity() FROM PUBLIC, anon, authenticated;` e `REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;`.
 
 ---
 

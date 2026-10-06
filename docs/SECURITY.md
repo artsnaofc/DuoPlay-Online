@@ -96,23 +96,36 @@ Concorrência de cliques e latência de rede são neutralizadas no nível do ban
 
 ---
 
-## 6. Políticas de RLS da Tabela Profiles (Implementadas na Fase 2)
+## 6. Políticas de RLS e Hardening da Tabela Profiles (Implementadas na Fase 2)
 
-Na Fase 2, a tabela `public.profiles` foi protegida com as seguintes políticas específicas:
+Na Fase 2, a tabela `public.profiles` foi submetida a hardening completo com as seguintes camadas de proteção:
 
-- **`profiles_select_own`**: `FOR SELECT TO authenticated USING (auth.uid() = id);`  
-  O usuário só pode consultar seu próprio perfil.
-- **`profiles_insert_own`**: `FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);`  
-  O usuário só pode criar o perfil vinculado ao seu próprio `auth.uid()`.
-- **`profiles_update_own`**: `FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);`  
-  O usuário só pode atualizar o próprio perfil e não pode alterar o ID para outro usuário.
-- **Grants**:
+- **Políticas de RLS**:
+  - **`profiles_select_own`**: `FOR SELECT TO authenticated USING (auth.uid() = id);`  
+    O usuário só pode consultar seu próprio perfil.
+  - **`profiles_insert_own`**: `FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);`  
+    O usuário só pode criar o perfil vinculado ao seu próprio `auth.uid()`.
+  - **`profiles_update_own`**: `FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);`  
+    O usuário só pode atualizar o próprio perfil e não pode alterar o ID para outro usuário.
+- **Permissões Granulares e Column Grants**:
   - `REVOKE ALL ON public.profiles FROM PUBLIC, anon;`
-  - `GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;`
-- **Trigger `handle_new_user()`**:
-  - Executado em `AFTER INSERT ON auth.users`.
-  - Configurado com `SECURITY DEFINER` e `SET search_path = public, pg_temp;`.
-  - Cria automaticamente o perfil garantindo username sanitizado e único sem intervenção do cliente.
-- **Testes de RLS**:
-  - Validados através da suite de testes transacional em `supabase/tests/profiles_rls_test.sql`.
+  - `GRANT SELECT, INSERT ON public.profiles TO authenticated;`
+  - `REVOKE UPDATE ON public.profiles FROM authenticated;`
+  - `GRANT UPDATE (username, display_name, avatar_url) ON public.profiles TO authenticated;`  
+    O cliente autenticado só possui permissão SQL de UPDATE nas 3 colunas editáveis. Tentativas de alterar estatísticas são rejeitadas de imediato pelo PostgreSQL.
+- **Blindagem de Estatísticas Oficiais e Campos do Sistema**:
+  - Função trigger `public.enforce_profile_update_integrity()`:
+    - Impede modificação de `id` e `created_at`.
+    - Bloqueia mutações manuais em `total_matches`, `total_wins`, `total_draws`, `total_losses`.
+    - *Regra Estrita*: As estatísticas de partidas não podem ser alteradas diretamente pelo cliente. Futuramente serão modificadas somente por operações oficiais do backend/match.
+    - Atualiza `updated_at` com o timestamp oficial do servidor (`now()`).
+- **Restrição de Funções `SECURITY DEFINER`**:
+  - Funções `public.handle_new_user()` e `public.enforce_profile_update_integrity()`:
+    - `SET search_path = public, pg_temp;` obrigatório contra search path hijacking.
+    - `REVOKE ALL ON FUNCTION ... FROM PUBLIC, anon, authenticated;`  
+      Nenhum usuário pode executá-las diretamente via RPC ou consulta SQL. Seu acionamento ocorre estritamente pelos triggers do sistema.
+- **Auto-Provisionamento Robusto**:
+  - `handle_new_user()` trata metadados nulos ou inválidos (como `@@@`), aplicando sanitização com regex `[a-z0-9_]`, validação de comprimento (3 a 32 caracteres) e fallback determinístico `player_<uuid_8>` contra colisões concorrentes.
+- **Suíte de Testes de Segurança**:
+  - 14 casos de teste implementados em `supabase/tests/profiles_rls_test.sql`, validando isolamento entre usuários, bloqueio de anon, bloqueio de forja de estatísticas e restrição de EXECUTE.
 

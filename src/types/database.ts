@@ -33,16 +33,9 @@ export type ProfileInsert = {
 };
 
 export type ProfileUpdate = {
-  id?: string;
   username?: string;
   display_name?: string;
   avatar_url?: string | null;
-  total_matches?: number;
-  total_wins?: number;
-  total_draws?: number;
-  total_losses?: number;
-  created_at?: string;
-  updated_at?: string;
 };
 
 export type Database = {

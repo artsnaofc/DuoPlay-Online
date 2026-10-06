@@ -46,26 +46,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // 1. Obter sessão inicial
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      if (!isMounted) return;
+    let lastLoadedUserId: string | null = null;
 
-      setSession(initialSession);
-      setUser(initialSession?.user ?? null);
-
-      if (initialSession?.user) {
-        loadProfile(initialSession.user.id).finally(() => {
-          if (isMounted) setIsLoading(false);
-        });
-      } else {
-        setIsLoading(false);
-      }
-    });
-
-    // 2. Escutar mudanças de autenticação
+    // Escutar mudanças de autenticação (no Supabase v2, dispara automaticamente o evento INITIAL_SESSION)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (!isMounted) return;
 
       setSession(newSession);
@@ -73,12 +59,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
 
       if (currentUser) {
-        await loadProfile(currentUser.id);
+        // Evita chamadas redundantes se o mesmo usuário já teve seu perfil carregado
+        if (currentUser.id !== lastLoadedUserId) {
+          lastLoadedUserId = currentUser.id;
+          await loadProfile(currentUser.id);
+        }
       } else {
+        lastLoadedUserId = null;
         setProfile(null);
       }
 
-      setIsLoading(false);
+      if (isMounted) {
+        setIsLoading(false);
+      }
     });
 
     return () => {
