@@ -187,4 +187,30 @@ describe('Fase 7.1.1: Tratamento de Erros e Serviços de Sessão', () => {
     // Em ambiente de teste mockado, pode retornar data null ou sucesso
     assert.ok(typeof res.success === 'boolean');
   });
+
+  it('10. reconnect() mantém uma única instância de heartbeat ativa', async () => {
+    const matchId = '00000000-0000-4000-8000-000000000010';
+    setSnapshotFetcherForTest(async <TState>() => createMockSnapshot<TState>(matchId, 'in_progress'));
+
+    const controller = new GameSessionController(matchId);
+    await controller.init();
+
+    await controller.reconnect();
+    await controller.reconnect();
+
+    assert.strictEqual(controller.getIsDestroyed(), false);
+    controller.destroy();
+    assert.strictEqual(controller.getIsDestroyed(), true);
+  });
+
+  it('11. triggerHeartbeatTick não executa se o controller for destruído', async () => {
+    const matchId = '00000000-0000-4000-8000-000000000011';
+    const controller = new GameSessionController(matchId);
+    controller.destroy();
+
+    // Não deve lançar erro
+    await controller.triggerHeartbeatTick();
+    assert.strictEqual(controller.getIsHeartbeatActive(), false);
+  });
 });
+

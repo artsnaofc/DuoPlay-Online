@@ -305,13 +305,12 @@ export class GameSessionController<TState = unknown> {
   /**
    * Inicia o envio periódico de heartbeat a cada 5 segundos.
    * Idempotente: impede timers duplicados para a mesma sessão.
+   * Garante o registro prévio do timer antes do primeiro tick para evitar condições de corrida.
    */
   startHeartbeat(intervalMs = 5000): void {
     if (this.isDestroyed || !this.matchId) return;
     if (this.snapshot && this.snapshot.status !== 'in_progress') return;
     if (this.heartbeatTimer !== null) return;
-
-    this.triggerHeartbeatTick();
 
     const isTestEnv =
       typeof window === 'undefined' &&
@@ -320,22 +319,23 @@ export class GameSessionController<TState = unknown> {
         Boolean(process.env.NODE_TEST_CONTEXT) ||
         (Array.isArray(process.argv) && process.argv.some((arg) => arg.includes('--test'))));
 
-    if (isTestEnv) {
-      return;
+    if (!isTestEnv) {
+      this.heartbeatTimer = setInterval(() => {
+        this.triggerHeartbeatTick();
+      }, intervalMs);
+
+      // Evita travar o processo Node.js se for executado em backend/SSR
+      if (
+        this.heartbeatTimer &&
+        typeof this.heartbeatTimer === 'object' &&
+        typeof (this.heartbeatTimer as unknown as { unref?: () => void }).unref === 'function'
+      ) {
+        (this.heartbeatTimer as unknown as { unref: () => void }).unref();
+      }
     }
 
-    this.heartbeatTimer = setInterval(() => {
-      this.triggerHeartbeatTick();
-    }, intervalMs);
-
-    // Evita travar o processo Node.js se for executado em backend/SSR
-    if (
-      this.heartbeatTimer &&
-      typeof this.heartbeatTimer === 'object' &&
-      typeof (this.heartbeatTimer as unknown as { unref?: () => void }).unref === 'function'
-    ) {
-      (this.heartbeatTimer as unknown as { unref: () => void }).unref();
-    }
+    // Executa o primeiro tick imediatamente após o registro seguro do ciclo
+    this.triggerHeartbeatTick();
   }
 
   /**

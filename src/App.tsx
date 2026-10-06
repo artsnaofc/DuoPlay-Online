@@ -35,7 +35,7 @@ function MainApp() {
   const [isAbandonConfirmOpen, setIsAbandonConfirmOpen] = useState(false);
   const [isAbandoning, setIsAbandoning] = useState(false);
 
-  const hasCheckedRecoveryRef = useRef(false);
+  const lastCheckedUserIdRef = useRef<string | null>(null);
 
   // Lê parâmetros de URL na inicialização (?match=UUID ou ?room=CODE)
   useEffect(() => {
@@ -54,9 +54,7 @@ function MainApp() {
   }, []);
 
   // Checagem de partida ativa no startup / login
-  const checkActiveMatchOnStartup = useCallback(async () => {
-    if (isAuthLoading || !isAuthenticated || !user) return;
-
+  const checkActiveMatchOnStartup = useCallback(async (currentUserId: string) => {
     // Se já estiver em partida via URL ou estado, não abre modal de recuperação
     if (activeMatchId) return;
     if (typeof window !== 'undefined') {
@@ -67,10 +65,12 @@ function MainApp() {
     try {
       const res = await getActiveMatchForCurrentUser();
       if (res.success && res.data) {
-        // Verifica se a partida não foi recém-abandonada nesta aba
+        // Verifica se a partida não foi recém-abandonada nesta aba pelo usuário atual
         let isDismissed = false;
         if (typeof window !== 'undefined') {
-          isDismissed = Boolean(sessionStorage.getItem(`abandoned_match_${res.data.match_id}`));
+          isDismissed =
+            Boolean(sessionStorage.getItem(`abandoned_match_${currentUserId}_${res.data.match_id}`)) ||
+            Boolean(sessionStorage.getItem(`abandoned_match_${res.data.match_id}`));
         }
 
         if (!isDismissed) {
@@ -81,12 +81,27 @@ function MainApp() {
     } catch {
       // Erro temporário de rede não interrompe o app
     }
-  }, [isAuthLoading, isAuthenticated, user, activeMatchId]);
+  }, [activeMatchId]);
 
+  // Efeito de transição de autenticação (suporta troca de conta User A -> Logout -> User B)
   useEffect(() => {
-    if (!isAuthLoading && isAuthenticated && user && !hasCheckedRecoveryRef.current) {
-      hasCheckedRecoveryRef.current = true;
-      checkActiveMatchOnStartup();
+    if (isAuthLoading) return;
+
+    if (!isAuthenticated || !user) {
+      // Usuário deslogou: limpa estados de recuperação do usuário anterior
+      lastCheckedUserIdRef.current = null;
+      setRecoveryMatchInfo(null);
+      setIsRecoveryModalOpen(false);
+      setIsAbandonConfirmOpen(false);
+      return;
+    }
+
+    // Usuário logou ou trocou de conta
+    if (user.id !== lastCheckedUserIdRef.current) {
+      lastCheckedUserIdRef.current = user.id;
+      setRecoveryMatchInfo(null);
+      setIsRecoveryModalOpen(false);
+      checkActiveMatchOnStartup(user.id);
     }
   }, [isAuthLoading, isAuthenticated, user, checkActiveMatchOnStartup]);
 
