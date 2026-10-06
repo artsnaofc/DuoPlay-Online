@@ -1,4 +1,4 @@
-# Contrato de Backend — DuoPlay Online
+# Contrato de Backend — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation

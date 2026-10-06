@@ -1,4 +1,4 @@
-# Especificação de Realtime e Comunicação — DuoPlay Online
+# Especificação de Realtime e Comunicação — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation
@@ -7,7 +7,7 @@
 
 ## 1. Princípio Fundamental: Realtime NÃO é Fonte da Verdade
 
-Na arquitetura do DuoPlay Online, a autoridade e consistência dos dados pertencem exclusivamente ao **PostgreSQL**. O subsistema de Realtime atua como um canal de transporte, notificação e sincronização de eventos entre os clientes conectados.
+Na arquitetura do DuoPlay-Online, a autoridade e consistência dos dados pertencem exclusivamente ao **PostgreSQL**. O subsistema de Realtime atua como um canal de transporte, notificação e sincronização de eventos entre os clientes conectados.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

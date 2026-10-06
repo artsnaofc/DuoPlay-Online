@@ -1,4 +1,4 @@
-# Diretrizes de Segurança e Proteção — DuoPlay Online
+# Diretrizes de Segurança e Proteção — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation

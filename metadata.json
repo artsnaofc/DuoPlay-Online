@@ -1,6 +1,6 @@
 {
-  "name": "Multiplayer Platform Architecture",
-  "description": "Especificação técnica e arquitetura de plataforma multiplayer modular e resiliente para jogos web.",
+  "name": "DuoPlay-Online",
+  "description": "DuoPlay-Online — Plataforma web multiplayer modular e resiliente para jogos.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

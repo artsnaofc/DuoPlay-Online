@@ -1,4 +1,4 @@
-# Arquitetura da Plataforma Multiplayer — DuoPlay Online
+# Arquitetura da Plataforma Multiplayer — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation
@@ -7,7 +7,7 @@
 
 ## 1. Visão Geral Executiva
 
-O **DuoPlay Online** é uma plataforma web multiplayer para jogos casuais e competitivos em tempo real. O foco central desta primeira etapa arquitetural é conceber uma infraestrutura resiliente, modular e desacoplada, na qual a lógica de rede, salas, presença, reconexão e persistência não dependa das regras de qualquer jogo específico.
+O **DuoPlay-Online** é uma plataforma web multiplayer para jogos casuais e competitivos em tempo real. O foco central desta primeira etapa arquitetural é conceber uma infraestrutura resiliente, modular e desacoplada, na qual a lógica de rede, salas, presença, reconexão e persistência não dependa das regras de qualquer jogo específico.
 
 O **Jogo da Velha (Tic-Tac-Toe)** é o primeiro e único jogo em escopo para a implementação inicial, servindo como validação prática da **Network Engine**. Futuros títulos (como Pong, Cobrinha, Carta Duo) são tratados nesta documentação estritamente como exemplos de extensibilidade futura e **não serão implementados agora**.
 

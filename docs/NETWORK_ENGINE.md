@@ -1,4 +1,4 @@
-# Network Engine Universal — DuoPlay Online
+# Network Engine Universal — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation

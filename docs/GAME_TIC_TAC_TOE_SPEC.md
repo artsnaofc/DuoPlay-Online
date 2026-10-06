@@ -1,4 +1,4 @@
-# Especificação do Jogo da Velha na Network Engine — DuoPlay Online
+# Especificação do Jogo da Velha na Network Engine — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation

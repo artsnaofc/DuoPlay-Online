@@ -1,9 +1,9 @@
-# Roteiro de Fases de Desenvolvimento — DuoPlay Online
+# Roteiro de Fases de Desenvolvimento — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation
 
-Este documento estabelece o cronograma oficial de implementação sequencial para o DuoPlay Online. Nenhuma fase subsequente deve ser iniciada sem que os critérios de aceite (*Definition of Done*) da fase anterior tenham sido integralmente validados e aprovados.
+Este documento estabelece o cronograma oficial de implementação sequencial para o DuoPlay-Online. Nenhuma fase subsequente deve ser iniciada sem que os critérios de aceite (*Definition of Done*) da fase anterior tenham sido integralmente validados e aprovados.
 
 ---
 

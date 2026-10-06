@@ -1,9 +1,9 @@
-# Modelo de Banco de Dados — DuoPlay Online
+# Modelo de Banco de Dados — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation
 
-Este documento especifica o modelo relacional da plataforma DuoPlay Online no PostgreSQL (Supabase). Ele estabelece a integridade referencial, constraints de concorrência e a separação estrita entre a gestão social de **Salas (Rooms)** e o ciclo operacional de **Partidas (Matches)**.
+Este documento especifica o modelo relacional da plataforma DuoPlay-Online no PostgreSQL (Supabase). Ele estabelece a integridade referencial, constraints de concorrência e a separação estrita entre a gestão social de **Salas (Rooms)** e o ciclo operacional de **Partidas (Matches)**.
 
 ---
 

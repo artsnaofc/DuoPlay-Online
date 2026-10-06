@@ -1,9 +1,9 @@
-# Registro de Decisões Arquiteturais e Trade-offs — DuoPlay Online
+# Registro de Decisões Arquiteturais e Trade-offs — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
 > **Status:** Proposed / Pending Implementation
 
-Este documento registra formalmente as decisões arquiteturais definitivas do DuoPlay Online v1.0, documentando o problema avaliado, as opções consideradas, a recomendação adotada, as justificativas técnicas e os impactos futuros.
+Este documento registra formalmente as decisões arquiteturais definitivas do DuoPlay-Online v1.0, documentando o problema avaliado, as opções consideradas, a recomendação adotada, as justificativas técnicas e os impactos futuros.
 
 ---
 
