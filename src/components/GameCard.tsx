@@ -1,9 +1,9 @@
 import React from 'react';
-import { Grid3X3, Activity, Orbit, Users, Clock, Sparkles } from 'lucide-react';
-import { PlannedGame } from '@/types/platform';
+import { Grid3X3, Activity, Orbit, Users, Sparkles, Clock } from 'lucide-react';
+import { GameItem } from '@/types/platform';
 
 interface GameCardProps {
-  game: PlannedGame;
+  game: GameItem;
 }
 
 export const GameCard: React.FC<GameCardProps> = ({ game }) => {
@@ -20,16 +20,8 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
     }
   };
 
-  const isFirstGame = game.status === 'development';
-
   return (
-    <article
-      className={`relative flex flex-col rounded-xl border bg-slate-900/60 p-6 transition-all duration-200 hover:border-slate-700 ${
-        isFirstGame
-          ? 'border-blue-500/40 shadow-lg shadow-blue-950/20'
-          : 'border-slate-800'
-      }`}
-    >
+    <article className="relative flex flex-col rounded-xl border border-slate-800 bg-slate-900/60 p-6 transition-all duration-200 hover:border-slate-700">
       {/* Header of Card */}
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex items-center gap-3">
@@ -56,10 +48,7 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
         <span aria-hidden="true" className="text-slate-600">·</span>
         <span>{game.category}</span>
         <span aria-hidden="true" className="text-slate-600">·</span>
-        <span className="flex items-center gap-1 font-mono text-slate-300">
-          <Clock className="w-3.5 h-3.5 text-slate-400" />
-          {game.phaseTarget}
-        </span>
+        <span>Multiplayer Online</span>
       </div>
 
       {/* Description */}
@@ -67,38 +56,29 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
         {game.description}
       </p>
 
-      {/* Planned Feature Highlights */}
+      {/* Game Highlights */}
       <div className="space-y-1.5 mb-6 text-[11px] text-slate-400">
         <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">
-          Destaques da Integração:
+          Destaques do Jogo:
         </span>
-        {game.features.map((feature, idx) => (
+        {game.highlights.map((highlight, idx) => (
           <div key={idx} className="flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500/80 shrink-0" />
-            <span className="truncate">{feature}</span>
+            <span className="truncate">{highlight}</span>
           </div>
         ))}
       </div>
 
-      {/* Footer / Status Indicator (Not a fake playable button) */}
+      {/* Footer / Availability Status (Honest, clean, no fake buttons) */}
       <div className="pt-3 border-t border-slate-800/60 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              isFirstGame ? 'bg-amber-400 animate-pulse' : 'bg-slate-600'
-            }`}
-          />
-          <span
-            className={`text-xs font-medium ${
-              isFirstGame ? 'text-amber-300' : 'text-slate-400'
-            }`}
-          >
-            {game.statusLabel}
+          <Clock className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-xs font-medium text-amber-300">
+            Disponível em breve
           </span>
         </div>
-
-        <span className="text-[11px] text-slate-400 font-mono">
-          {isFirstGame ? 'Foco Atual' : 'Extensão Futura'}
+        <span className="text-[11px] text-slate-500">
+          Partidas Online
         </span>
       </div>
     </article>

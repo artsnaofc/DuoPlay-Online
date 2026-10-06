@@ -1,32 +1,25 @@
-export type GameStatus = 'development' | 'planned' | 'concept';
-
-export interface PlannedGame {
+export interface GameItem {
   id: string;
   title: string;
   tagline: string;
   description: string;
   minPlayers: number;
   maxPlayers: number;
-  status: GameStatus;
-  statusLabel: string;
-  phaseTarget: string;
   category: string;
-  accentColor: string;
   iconName: 'grid' | 'activity' | 'worm';
-  features: string[];
+  highlights: string[];
+  isAvailable: boolean;
 }
 
-export interface PlatformPillar {
+export interface PlatformFeature {
   title: string;
   subtitle: string;
   description: string;
-  iconName: 'layers' | 'zap' | 'shield' | 'smartphone';
+  iconName: 'zap' | 'shield' | 'smartphone' | 'users';
 }
 
-export interface RoadmapStep {
-  phase: string;
+export interface HowItWorksStep {
+  number: string;
   title: string;
   description: string;
-  isCurrent?: boolean;
-  isCompleted?: boolean;
 }

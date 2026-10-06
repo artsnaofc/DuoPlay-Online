@@ -1,154 +1,120 @@
-import React, { useState } from 'react';
-import { Gamepad2, Shield, Layers, Smartphone, Sparkles, ArrowRight, CheckCircle2, Circle } from 'lucide-react';
+import React from 'react';
+import { ArrowRight, Sparkles, Smartphone, ShieldCheck, Users, Zap, KeyRound, Gamepad2 } from 'lucide-react';
 import { GameCard } from '@/components/GameCard';
-import { PlannedGame, PlatformPillar, RoadmapStep } from '@/types/platform';
+import { GameItem, PlatformFeature, HowItWorksStep } from '@/types/platform';
 
-const PLANNED_GAMES: PlannedGame[] = [
+const GAMES: GameItem[] = [
   {
     id: 'tic-tac-toe',
     title: 'Jogo da Velha',
-    tagline: 'O primeiro jogo da plataforma DuoPlay-Online',
+    tagline: 'Clássico duelo de raciocínio rápido',
     description:
-      'Clássico duelo estratégico de turnos para 2 competidores. Servirá como primeira prova de conceito e validação da Network Engine e das RPCs transacionais.',
+      'A tradicional disputa de estratégia por turnos para 2 jogadores. Perfeito para partidas ágeis e revanche instantânea.',
     minPlayers: 2,
     maxPlayers: 2,
-    status: 'development',
-    statusLabel: 'Em desenvolvimento (Fase 14)',
-    phaseTarget: 'Fase 14',
     category: 'Estratégia por Turnos',
-    accentColor: '#38bdf8',
     iconName: 'grid',
-    features: [
-      'Validação de jogadas autoritativa no PostgreSQL',
-      'Detecção determinística de vitória e empate',
-      'Tolerância a desconexão temporária (Grace Period de 45s)',
-      'Consome Network Engine via useGameMatch hook',
+    highlights: [
+      'Partidas para 2 competidores',
+      'Turnos ágeis com cronômetro balanceado',
+      'Placar de partidas e opção de revanche',
+      'Detecção automática de vitórias e empates',
     ],
+    isAvailable: false,
   },
   {
     id: 'pong',
-    title: 'Pong Competitivo',
-    tagline: 'Duelo arcade de reflexos e alta taxa de atualização',
+    title: 'Pong',
+    tagline: 'Duelo arcade de reflexos e agilidade',
     description:
-      'Partida em tempo real de raquetes e bola com física sincronizada. Projetado para estender a infraestrutura para dinâmicas de baixa latência.',
+      'O clássico confronto de raquetes em tempo real. Teste seus reflexos em trocas rápidas de bola em ritmo acelerado.',
     minPlayers: 2,
     maxPlayers: 2,
-    status: 'planned',
-    statusLabel: 'Planejado para fases futuras',
-    phaseTarget: 'Fase 15+',
-    category: 'Ação / Arcade',
-    accentColor: '#a855f7',
+    category: 'Arcade / Reflexos',
     iconName: 'activity',
-    features: [
-      'Sincronização de posições de raquete via Realtime Broadcast',
-      'Arbitragem transacional de pontos no banco de dados',
-      'Mesma infraestrutura de salas e gerenciamento de partida',
-      'Zero alterações na Network Engine base',
+    highlights: [
+      'Ação em tempo real com física fluida',
+      'Disputa direta ponto a ponto',
+      'Controles simples adaptados para toque e teclado',
+      'Modo competitivo mano a mano',
     ],
+    isAvailable: false,
   },
   {
     id: 'snake',
     title: 'Cobrinha Competitiva',
-    tagline: 'Arena multiplayer de sobrevivência e reflexos',
+    tagline: 'Arena multiplayer de sobrevivência',
     description:
-      'Arena compartilhada para 2 a 4 competidores simultâneos disputando espaço e colecionáveis. Demonstra que a plataforma suporta múltiplos jogadores por partida.',
+      'Controle sua cobrinha na arena compartilhada, colete itens e desvie dos adversários em uma disputa dinâmica de sobrevivência.',
     minPlayers: 2,
     maxPlayers: 4,
-    status: 'planned',
-    statusLabel: 'Planejado para fases futuras',
-    phaseTarget: 'Fase 15+',
-    category: 'Sobrevivência / Arena',
-    accentColor: '#10b981',
+    category: 'Arena / Sobrevivência',
     iconName: 'worm',
-    features: [
-      'Suporte a 2 ou mais jogadores por sala e partida',
-      'Tick de movimentação em grid sincronizado',
-      'Ranking de sobrevivência por partida',
-      'Reutilização integral do subsistema de conexão',
+    highlights: [
+      'Suporte para até 4 jogadores simultâneos',
+      'Arena dinâmica com itens e obstáculos',
+      'Partidas cheias de reviravoltas',
+      'Sobreviva mais tempo para vencer',
     ],
+    isAvailable: false,
   },
 ];
 
-const PLATFORM_PILLARS: PlatformPillar[] = [
+const FEATURES: PlatformFeature[] = [
   {
-    title: 'Camada de Jogos Agnóstica',
-    subtitle: 'Desacoplamento Total',
+    title: 'Acesso Instantâneo',
+    subtitle: 'Sem Instalação Obrigatória',
     description:
-      'Nenhum jogo importa o Supabase ou conhece detalhes de WebSocket. Todos consomem um contrato limpo (GameDefinition) através do hook universal useGameMatch.',
-    iconName: 'layers',
-  },
-  {
-    title: 'PostgreSQL como Fonte da Verdade',
-    subtitle: 'Serverless sem Trapaça',
-    description:
-      'O estado oficial das partidas e a validação de regras residem em transações ACID no banco. Manipulações no navegador não alteram o placar ou o tabuleiro.',
-    iconName: 'shield',
-  },
-  {
-    title: 'Grace Period de 45s no Servidor',
-    subtitle: 'Resiliência a Quedas Móveis',
-    description:
-      'Ao bloquear a tela do celular ou alternar conexões (Wi-Fi/4G), o cronômetro do turno é suspenso no servidor e a vaga permanece reservada durante 45 segundos.',
+      'Abra no navegador do celular ou computador e jogue imediatamente. Sem downloads pesados ou cadastros complicados.',
     iconName: 'zap',
   },
   {
-    title: 'Mobile-First & PWA Standalone',
-    subtitle: 'Instalável em Celulares e Desktop',
+    title: 'Salas com Código Rápido',
+    subtitle: 'Conecte-se com Amigos',
     description:
-      'Interface otimizada para toque em telas compactas e excelente ergonomia com teclado e mouse em desktops, com suporte a Progressive Web App.',
+      'Crie sua sala com um código simples de 6 caracteres e compartilhe por mensagem para começar a partida na hora.',
+    iconName: 'users',
+  },
+  {
+    title: 'Conexão Estável',
+    subtitle: 'Proteção contra Quedas',
+    description:
+      'Sistema preparado para tolerar oscilações de sinal no celular sem encerrar a partida imediatamente.',
+    iconName: 'shield',
+  },
+  {
+    title: 'Instale como App (PWA)',
+    subtitle: 'Mobile & Desktop',
+    description:
+      'Adicione à tela de início do seu smartphone para abrir em tela cheia com a rapidez e o conforto de um aplicativo nativo.',
     iconName: 'smartphone',
   },
 ];
 
-const ROADMAP_STEPS: RoadmapStep[] = [
+const HOW_IT_WORKS: HowItWorksStep[] = [
   {
-    phase: 'Fase 0',
-    title: 'Arquitetura e Documentação',
-    description: 'Especificação técnica consolidada em 9 documentos formais em docs/.',
-    isCompleted: true,
+    number: '01',
+    title: 'Escolha o Jogo',
+    description: 'Navegue pelo catálogo e escolha o jogo multiplayer ideal para o seu momento.',
   },
   {
-    phase: 'Fase 1',
-    title: 'Fundação Frontend',
-    description: 'React, Vite, TypeScript, Tailwind, PWA e estrutura da plataforma.',
-    isCurrent: true,
+    number: '02',
+    title: 'Crie ou Entre na Sala',
+    description: 'Gere um código exclusivo para sua sala ou insira o código enviado pelo seu amigo.',
   },
   {
-    phase: 'Fases 2 a 5',
-    title: 'Supabase, Schemas e RPCs',
-    description: 'Autenticação, tabelas relacionais, regras RLS e stored procedures transacionais.',
-  },
-  {
-    phase: 'Fases 6 a 10',
-    title: 'Network Engine e Realtime',
-    description: 'Connection, Presence, Reconnect (Grace Period) e multiplexação de canais.',
-  },
-  {
-    phase: 'Fases 11 a 13',
-    title: 'Salas, Partidas e Testes de Rede',
-    description: 'Lobby social, congelamento de competidores e testes sob latência artificial.',
-  },
-  {
-    phase: 'Fases 14 e 15',
-    title: 'Jogo da Velha e Lançamento',
-    description: 'Primeiro jogo funcional integrado à engine e testes multiplayer E2E.',
+    number: '03',
+    title: 'Jogue em Tempo Real',
+    description: 'Dispute jogada a jogada com sincronização fluida e divirta-se sem interrupções.',
   },
 ];
 
 export const HomePage: React.FC = () => {
-  const [filter, setFilter] = useState<'all' | 'first' | 'future'>('all');
-
-  const filteredGames = PLANNED_GAMES.filter((game) => {
-    if (filter === 'first') return game.status === 'development';
-    if (filter === 'future') return game.status === 'planned';
-    return true;
-  });
-
   return (
     <div className="space-y-24">
       {/* 1. Hero Section */}
       <section id="hero" className="relative pt-12 pb-8 sm:pt-20 sm:pb-16 overflow-hidden">
-        {/* Subtle decorative background gradient */}
+        {/* Subtle decorative background glow */}
         <div
           className="absolute -top-24 left-1/2 -translate-x-1/2 w-[600px] h-[350px] bg-gradient-to-b from-blue-600/15 via-indigo-600/10 to-transparent blur-3xl pointer-events-none"
           aria-hidden="true"
@@ -156,22 +122,21 @@ export const HomePage: React.FC = () => {
 
         <div className="max-w-4xl mx-auto text-center px-4 sm:px-6 space-y-6">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-semibold text-white">DuoPlay-Online v1.0</span>
+            <span className="w-2 h-2 rounded-full bg-blue-400" />
+            <span className="font-semibold text-white">DuoPlay-Online</span>
             <span aria-hidden="true" className="text-slate-600">·</span>
-            <span className="text-slate-400">Fase 1: Fundação Frontend</span>
+            <span className="text-slate-400">Plataforma de Jogos Multiplayer</span>
           </div>
 
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight">
-            Plataforma Web de Jogos{' '}
+            Jogue com amigos em tempo real{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400">
-              Multiplayer
+              direto no navegador
             </span>
           </h1>
 
           <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Uma fundação modular e serverless construída para múltiplos jogos em tempo real. 
-            Projetada para tolerar quedas móveis temporárias, assegurar regras invioláveis e conectar jogadores em qualquer dispositivo.
+            Partidas rápidas, leves e fluidas. Crie sua sala com um código simples e desafie quem você quiser, no celular ou no computador, sem necessidade de downloads.
           </p>
 
           <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
@@ -179,179 +144,123 @@ export const HomePage: React.FC = () => {
               href="#games"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-blue-900/20 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
             >
-              <span>Ver Jogos Planejados</span>
+              <span>Explorar Jogos</span>
               <ArrowRight className="w-4 h-4" />
             </a>
             <a
-              href="#architecture"
+              href="#how-it-works"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs sm:text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
             >
-              <span>Conhecer a Arquitetura</span>
+              <span>Como Funciona</span>
             </a>
           </div>
 
-          {/* Quick Technical Badges - Zero-Pill Text Format */}
+          {/* Value Props Line */}
           <div className="pt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-400">
-            <span>React 19 + Vite</span>
+            <span>Partidas Leves</span>
             <span aria-hidden="true">·</span>
-            <span>TypeScript Estrito</span>
+            <span>Salas com Código</span>
             <span aria-hidden="true">·</span>
-            <span>Tailwind CSS</span>
+            <span>Mobile & Desktop</span>
             <span aria-hidden="true">·</span>
-            <span>PWA Standalone</span>
-            <span aria-hidden="true">·</span>
-            <span>Pronto para Vercel</span>
+            <span>Instalável no Smartphone</span>
           </div>
         </div>
       </section>
 
-      {/* 2. Platform Architecture Pillars */}
-      <section id="architecture" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* 2. Games Catalog */}
+      <section id="games" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
           <span className="text-xs font-mono uppercase tracking-wider text-blue-400">
-            Arquitetura Aprovada
+            Catálogo
           </span>
           <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-            Pilares da Infraestrutura
+            Jogos da Plataforma
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            DuoPlay-Online é arquitetada em camadas bem definidas, garantindo que novos jogos possam ser adicionados sem reescrever a base de rede.
+            Conheça os títulos pensados para partidas rápidas e divertidas entre amigos.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {PLATFORM_PILLARS.map((pillar, idx) => (
-            <div
-              key={idx}
-              className="flex flex-col p-6 rounded-xl bg-slate-900/50 border border-slate-800 hover:border-slate-700 transition-colors"
-            >
-              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-slate-800/80 text-blue-400 mb-4 border border-slate-700/60">
-                {pillar.iconName === 'layers' && <Layers className="w-5 h-5" />}
-                {pillar.iconName === 'shield' && <Shield className="w-5 h-5" />}
-                {pillar.iconName === 'zap' && <Sparkles className="w-5 h-5" />}
-                {pillar.iconName === 'smartphone' && <Smartphone className="w-5 h-5" />}
-              </div>
-              <h3 className="text-sm font-bold text-white mb-1">{pillar.title}</h3>
-              <p className="text-[11px] font-semibold text-blue-400 mb-2">{pillar.subtitle}</p>
-              <p className="text-xs text-slate-400 leading-relaxed grow">{pillar.description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* 3. Planned Games Catalog */}
-      <section id="games" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10 pb-6 border-b border-slate-800">
-          <div className="space-y-2 max-w-xl">
-            <span className="text-xs font-mono uppercase tracking-wider text-blue-400">
-              Catálogo da Plataforma
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              Jogos da Plataforma
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-400">
-              O DuoPlay-Online suportará múltiplos jogos. O <strong className="text-slate-200">Jogo da Velha</strong> é o foco inicial da Fase 14, preparando o terreno para expansões futuras.
-            </p>
-          </div>
-
-          {/* Functional Filter Tabs (Allowed button segmented control per design rules) */}
-          <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-lg self-start md:self-auto">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                filter === 'all'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Todos ({PLANNED_GAMES.length})
-            </button>
-            <button
-              onClick={() => setFilter('first')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                filter === 'first'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Primeiro Jogo (Fase 14)
-            </button>
-            <button
-              onClick={() => setFilter('future')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                filter === 'future'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Futuros Planejados
-            </button>
-          </div>
-        </div>
-
-        {/* Game Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredGames.map((game) => (
+          {GAMES.map((game) => (
             <GameCard key={game.id} game={game} />
           ))}
         </div>
       </section>
 
-      {/* 4. Development Roadmap Progress */}
-      <section id="roadmap" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* 3. Platform Features */}
+      <section id="features" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
           <span className="text-xs font-mono uppercase tracking-wider text-blue-400">
-            Cronograma Oficial
+            Vantagens
           </span>
           <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-            Sequência de Desenvolvimento
+            Criado para a Melhor Experiência
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            O projeto é implementado em fases controladas. Cada fase requer validação integral antes de iniciar a próxima.
+            Toda a plataforma foi pensada para você jogar sem barreiras ou complicações.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {ROADMAP_STEPS.map((step, idx) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {FEATURES.map((feature, idx) => (
             <div
               key={idx}
-              className={`p-5 rounded-xl border flex flex-col justify-between transition-colors ${
-                step.isCurrent
-                  ? 'bg-blue-950/20 border-blue-500/60 shadow-md shadow-blue-950/30'
-                  : step.isCompleted
-                  ? 'bg-slate-900/40 border-emerald-500/40'
-                  : 'bg-slate-900/30 border-slate-800/80 opacity-75'
-              }`}
+              className="flex flex-col p-6 rounded-xl bg-slate-900/50 border border-slate-800 hover:border-slate-700 transition-colors"
+            >
+              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-slate-800/80 text-blue-400 mb-4 border border-slate-700/60">
+                {feature.iconName === 'zap' && <Zap className="w-5 h-5" />}
+                {feature.iconName === 'users' && <Users className="w-5 h-5" />}
+                {feature.iconName === 'shield' && <ShieldCheck className="w-5 h-5" />}
+                {feature.iconName === 'smartphone' && <Smartphone className="w-5 h-5" />}
+              </div>
+              <h3 className="text-sm font-bold text-white mb-1">{feature.title}</h3>
+              <p className="text-[11px] font-semibold text-blue-400 mb-2">{feature.subtitle}</p>
+              <p className="text-xs text-slate-400 leading-relaxed grow">{feature.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 4. How it Works */}
+      <section id="how-it-works" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
+          <span className="text-xs font-mono uppercase tracking-wider text-blue-400">
+            Simplicidade
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+            Como Funciona
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400">
+            Três passos simples para começar a jogar com seus amigos.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {HOW_IT_WORKS.map((step, idx) => (
+            <div
+              key={idx}
+              className="relative p-6 rounded-xl border border-slate-800 bg-slate-900/40 flex flex-col justify-between"
             >
               <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="font-mono text-xs font-bold text-slate-400">
-                    {step.phase}
-                  </span>
-                  {step.isCompleted ? (
-                    <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Concluída
-                    </span>
-                  ) : step.isCurrent ? (
-                    <span className="flex items-center gap-1 text-[11px] font-semibold text-blue-400">
-                      <Circle className="w-3 h-3 fill-blue-400 animate-pulse" />
-                      Fase Atual
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-slate-500">Próxima</span>
-                  )}
-                </div>
-                <h3 className="text-sm font-bold text-white mb-1.5">{step.title}</h3>
+                <span className="text-3xl font-extrabold text-blue-500/30 font-mono block mb-2">
+                  {step.number}
+                </span>
+                <h3 className="text-base font-bold text-white mb-2">{step.title}</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">{step.description}</p>
               </div>
 
-              {step.isCurrent && (
-                <div className="mt-4 pt-3 border-t border-blue-900/40 flex items-center justify-between text-[11px] text-blue-300 font-mono">
-                  <span>Status: Em Execução</span>
-                  <span>React + Vite + PWA</span>
-                </div>
-              )}
+              <div className="mt-6 pt-3 border-t border-slate-800/60 flex items-center gap-2 text-xs text-slate-500">
+                {idx === 0 && <Gamepad2 className="w-4 h-4 text-blue-400" />}
+                {idx === 1 && <KeyRound className="w-4 h-4 text-purple-400" />}
+                {idx === 2 && <Sparkles className="w-4 h-4 text-emerald-400" />}
+                <span>
+                  {idx === 0 && 'Catálogo diversificado'}
+                  {idx === 1 && 'Convites instantâneos'}
+                  {idx === 2 && 'Partidas em tempo real'}
+                </span>
+              </div>
             </div>
           ))}
         </div>
