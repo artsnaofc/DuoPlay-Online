@@ -1,13 +1,13 @@
 // ============================================================================
 // Unit Tests: Room Orchestration & Code Validation — DuoPlay-Online
-// Phase: Fase 7.0.1 — Correção da Geração do Código da Sala
+// Phase: Fase 7.0.2 — Correção do RLS e Carregamento do Lobby
 // ============================================================================
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { translateRoomError, joinRoomByCode } from '@/services/rooms';
+import { translateRoomError, joinRoomByCode, getRoomDetails } from '@/services/rooms';
 
-describe('Fase 7.0.1: Tradução e Mapeamento de Erros de Sala', () => {
+describe('Fase 7.0.2: Tradução e Mapeamento de Erros de Sala & RLS', () => {
   it('1. Deve mapear P0001 para mensagem e código UNAUTHORIZED', () => {
     const res = translateRoomError({ message: 'UNAUTHORIZED: Usuário não autenticado.', code: 'P0001' });
     assert.equal(res.code, 'UNAUTHORIZED');
@@ -26,7 +26,25 @@ describe('Fase 7.0.1: Tradução e Mapeamento de Erros de Sala', () => {
     assert.match(res.message, /limite máximo/);
   });
 
-  it('4. Deve tratar erros desconhecidos e objetos nulos com segurança', () => {
+  it('4. Deve mapear erro 42P17 (recursão de RLS) para RLS_RECURSION_ERROR com mensagem clara', () => {
+    const res = translateRoomError({
+      code: '42P17',
+      message: 'infinite recursion detected in policy for relation "room_members"',
+    });
+    assert.equal(res.code, 'RLS_RECURSION_ERROR');
+    assert.match(res.message, /recursão de RLS detectada/i);
+  });
+
+  it('5. Deve mapear erro 42501 (permission denied) para PERMISSION_DENIED', () => {
+    const res = translateRoomError({
+      code: '42501',
+      message: 'permission denied for table rooms',
+    });
+    assert.equal(res.code, 'PERMISSION_DENIED');
+    assert.match(res.message, /Permissão negada/i);
+  });
+
+  it('6. Deve tratar erros desconhecidos e objetos nulos com segurança', () => {
     const resNull = translateRoomError(null);
     assert.equal(resNull.code, 'UNKNOWN_ERROR');
 
@@ -36,10 +54,10 @@ describe('Fase 7.0.1: Tradução e Mapeamento de Erros de Sala', () => {
   });
 });
 
-describe('Fase 7.0.1: Validação de Formato e Código de Sala', () => {
+describe('Fase 7.0.2: Validação de Formato e Código de Sala', () => {
   const roomCodeRegex = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
-  it('5. Validador do formato Base32 rejeita códigos inválidos (tamanho ou caracteres ambíguos)', () => {
+  it('7. Validador do formato Base32 rejeita códigos inválidos (tamanho ou caracteres ambíguos)', () => {
     // Códigos válidos
     assert.ok(roomCodeRegex.test('ABC234'));
     assert.ok(roomCodeRegex.test('89KLMN'));
@@ -54,7 +72,7 @@ describe('Fase 7.0.1: Validação de Formato e Código de Sala', () => {
     assert.equal(roomCodeRegex.test('ABCDEFG'), false, 'Maior que 6');
   });
 
-  it('6. joinRoomByCode rejeita códigos vazios ou com tamanho inadequado no cliente', async () => {
+  it('8. joinRoomByCode rejeita códigos vazios ou com tamanho inadequado no cliente', async () => {
     const resShort = await joinRoomByCode('AB');
     assert.equal(resShort.success, false);
     assert.equal(resShort.code, 'INVALID_CODE');
@@ -62,5 +80,15 @@ describe('Fase 7.0.1: Validação de Formato e Código de Sala', () => {
     const resLong = await joinRoomByCode('TOOLONGCODE99');
     assert.equal(resLong.success, false);
     assert.equal(resLong.code, 'INVALID_CODE');
+  });
+
+  it('9. getRoomDetails rejeita identificador de sala nulo ou vazio sem consultar banco', async () => {
+    const resEmpty = await getRoomDetails('');
+    assert.equal(resEmpty.success, false);
+    assert.equal(resEmpty.code, 'INVALID_ID');
+
+    const resSpaces = await getRoomDetails('   ');
+    assert.equal(resSpaces.success, false);
+    assert.equal(resSpaces.code, 'INVALID_ID');
   });
 });

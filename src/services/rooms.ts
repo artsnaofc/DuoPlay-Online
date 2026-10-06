@@ -31,6 +31,18 @@ export function translateRoomError(error: unknown): { message: string; code: str
   const rawMsg = errObj.message || '';
   const code = errObj.code || 'UNKNOWN_ERROR';
 
+  if (code === '42P17' || rawMsg.includes('42P17') || rawMsg.includes('infinite recursion')) {
+    return {
+      message: 'Erro no banco de dados: recursão de RLS detectada nas salas/membros.',
+      code: 'RLS_RECURSION_ERROR',
+    };
+  }
+  if (code === '42501' || rawMsg.includes('42501') || rawMsg.includes('permission denied')) {
+    return {
+      message: 'Permissão negada para visualizar esta sala ou seus membros.',
+      code: 'PERMISSION_DENIED',
+    };
+  }
   if (rawMsg.includes('P0001') || rawMsg.includes('UNAUTHORIZED')) {
     return { message: 'Você precisa estar logado para entrar ou criar salas.', code: 'UNAUTHORIZED' };
   }
@@ -238,29 +250,41 @@ export async function leaveRoom(roomId: string): Promise<RoomOperationResult> {
 
 /**
  * Consulta detalhes da sala e seus membros atuais do PostgreSQL.
+ * Retorna RoomOperationResult com dados completos ou erro detalhado (sem engolir falhas).
  */
-export async function getRoomDetails(roomId: string): Promise<RoomWithMembers | null> {
-  if (!isSupabaseConfigured || !roomId) return null;
+export async function getRoomDetails(roomId: string): Promise<RoomOperationResult<RoomWithMembers>> {
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Supabase não está configurado.', code: 'NOT_CONFIGURED' };
+  }
+  if (!roomId || !roomId.trim()) {
+    return { success: false, error: 'Identificador de sala inválido.', code: 'INVALID_ID' };
+  }
 
   try {
     const { data: room, error: roomError } = await supabase
       .from('rooms')
       .select('*')
-      .eq('id', roomId)
+      .eq('id', roomId.trim())
       .maybeSingle();
 
-    if (roomError || !room) {
-      return null;
+    if (roomError) {
+      const translated = translateRoomError(roomError);
+      return { success: false, error: translated.message, code: translated.code };
+    }
+
+    if (!room) {
+      return { success: false, error: 'Sala não encontrada ou acesso não autorizado.', code: 'ROOM_NOT_FOUND' };
     }
 
     const { data: members, error: membersError } = await supabase
       .from('room_members')
       .select('id, room_id, user_id, role, slot_number, is_ready, joined_at, updated_at')
-      .eq('room_id', roomId)
+      .eq('room_id', roomId.trim())
       .order('slot_number', { ascending: true });
 
     if (membersError) {
-      return { ...room, members: [] };
+      const translated = translateRoomError(membersError);
+      return { success: false, error: translated.message, code: translated.code };
     }
 
     // Buscar perfis para obter nomes visíveis
@@ -288,10 +312,14 @@ export async function getRoomDetails(roomId: string): Promise<RoomWithMembers | 
     }));
 
     return {
-      ...room,
-      members: enrichedMembers,
+      success: true,
+      data: {
+        ...room,
+        members: enrichedMembers,
+      },
     };
-  } catch {
-    return null;
+  } catch (err) {
+    const translated = translateRoomError(err);
+    return { success: false, error: translated.message, code: translated.code };
   }
 }

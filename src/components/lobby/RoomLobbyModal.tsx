@@ -1,8 +1,9 @@
 // ============================================================================
 // Component: RoomLobbyModal — DuoPlay-Online
-// Phase: Fase 7 — Integração End-to-End do Jogo da Velha
-// Description: Modal enxuto de criação, entrada por código e espera de sala,
-//              conectado às RPCs oficiais do PostgreSQL para iniciar partidas.
+// Phase: Fase 7.0.2 — Correção do RLS e Carregamento do Lobby
+// Description: Modal de criação, entrada por código e espera de sala.
+//              Gerencia estados explícitos de carregamento, erro e espera,
+//              garantindo que erros de RLS ou rede não gerem telas vazias.
 // ============================================================================
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -19,6 +20,8 @@ import {
   Crown,
   UserCheck,
   UserX,
+  ArrowLeft,
+  RefreshCw,
 } from 'lucide-react';
 import {
   createRoom,
@@ -50,6 +53,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   const [mode, setMode] = useState<'options' | 'join' | 'waiting'>('options');
   const [joinCode, setJoinCode] = useState(initialCode || '');
   const [currentRoom, setCurrentRoom] = useState<RoomWithMembers | null>(null);
+  const [pendingRoomId, setPendingRoomId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -70,23 +74,43 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     }
   }, [initialCode]);
 
+  // Carrega ou recarrega os detalhes da sala de forma idempotente (sem criar nova sala)
+  const loadRoom = useCallback(async (roomId: string) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    const result = await getRoomDetails(roomId);
+    setIsLoading(false);
+
+    if (result.success && result.data) {
+      setCurrentRoom(result.data);
+      setPendingRoomId(roomId);
+      setMode('waiting');
+      return true;
+    } else {
+      setErrorMessage(result.error || 'Não foi possível carregar os dados da sala.');
+      setPendingRoomId(roomId);
+      return false;
+    }
+  }, []);
+
   // Polling para sincronização periódica da sala enquanto estiver em espera
   const refreshRoom = useCallback(async (roomId: string) => {
-    const details = await getRoomDetails(roomId);
-    if (!details) return;
+    const result = await getRoomDetails(roomId);
+    if (!result.success || !result.data) return;
 
-    setCurrentRoom(details);
+    setCurrentRoom(result.data);
 
     // Se o status da sala mudou para in_game e temos o ID da partida, transitar automaticamente!
-    if (details.status === 'in_game' && details.current_match_id) {
+    if (result.data.status === 'in_game' && result.data.current_match_id) {
       if (pollingRef.current) clearInterval(pollingRef.current);
-      onMatchStarted(details.current_match_id);
+      onMatchStarted(result.data.current_match_id);
     }
   }, [onMatchStarted]);
 
   useEffect(() => {
     if (mode === 'waiting' && currentRoom?.id) {
-      // Polling a cada 2 segundos para detectar entrada de outros jogadores e início da partida
+      // Polling a cada 2 segundos para sincronizar entrada de novos jogadores e início da partida
       pollingRef.current = window.setInterval(() => {
         refreshRoom(currentRoom.id);
       }, 2000);
@@ -103,18 +127,22 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     setErrorMessage(null);
 
     const result = await createRoom('tic_tac_toe', 'Jogo da Velha Multiplayer');
-    setIsLoading(false);
 
-    if (result.success && result.data) {
-      const roomDetails = await getRoomDetails(result.data.room.id);
-      setCurrentRoom(roomDetails);
-      setMode('waiting');
+    if (result.success && result.data?.room?.id) {
+      const roomId = result.data.room.id;
+      setPendingRoomId(roomId);
+      const loaded = await loadRoom(roomId);
+      if (!loaded) {
+        // Se a leitura inicial falhar, entra em waiting para exibir o erro e botão de retry
+        setMode('waiting');
+      }
     } else {
+      setIsLoading(false);
       setErrorMessage(result.error || 'Não foi possível criar a sala.');
     }
   };
 
-  // 2. Ação: Entrar na Sala
+  // 2. Ação: Entrar na Sala com código
   const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) return;
@@ -123,13 +151,16 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     setErrorMessage(null);
 
     const result = await joinRoomByCode(joinCode.trim());
-    setIsLoading(false);
 
-    if (result.success && result.data) {
-      const roomDetails = await getRoomDetails(result.data.room.id);
-      setCurrentRoom(roomDetails);
-      setMode('waiting');
+    if (result.success && result.data?.room?.id) {
+      const roomId = result.data.room.id;
+      setPendingRoomId(roomId);
+      const loaded = await loadRoom(roomId);
+      if (!loaded) {
+        setMode('waiting');
+      }
     } else {
+      setIsLoading(false);
       setErrorMessage(result.error || 'Código de sala inválido ou sala cheia.');
     }
   };
@@ -172,11 +203,14 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   // 5. Ação: Sair da Sala
   const handleLeaveRoom = async () => {
-    if (currentRoom) {
-      await leaveRoom(currentRoom.id);
+    const targetRoomId = currentRoom?.id || pendingRoomId;
+    if (targetRoomId) {
+      await leaveRoom(targetRoomId);
     }
     if (pollingRef.current) clearInterval(pollingRef.current);
     setCurrentRoom(null);
+    setPendingRoomId(null);
+    setErrorMessage(null);
     setMode('options');
   };
 
@@ -221,8 +255,8 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
           </button>
         </div>
 
-        {/* Error message */}
-        {errorMessage && (
+        {/* Global Error banner if in options or join mode */}
+        {errorMessage && mode !== 'waiting' && (
           <div className="mb-4 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
             <span className="grow">{errorMessage}</span>
@@ -313,136 +347,184 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
         )}
 
         {/* 3. MODO: Waiting Room (Sala de Espera) */}
-        {mode === 'waiting' && currentRoom && (
-          <div className="space-y-5">
-            {/* Room Code Card */}
-            <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Código para convidar amigo:
-              </span>
-              <div className="flex items-center justify-center gap-3">
-                <span className="text-2xl sm:text-3xl font-mono font-black text-blue-400 tracking-wider">
-                  {currentRoom.code}
-                </span>
-                <button
-                  type="button"
-                  onClick={copyCodeToClipboard}
-                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                  title="Copiar Código"
-                >
-                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                {copied ? 'Código copiado para a área de transferência!' : 'Compartilhe este código com quem vai jogar'}
-              </p>
-            </div>
-
-            {/* Players list */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-slate-400 font-semibold px-1">
-                <span>Participantes ({currentRoom.members.length}/2)</span>
-                <Users className="w-3.5 h-3.5" />
-              </div>
-
-              {/* Slot 1: Host */}
-              <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-750 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-blue-600/30 border border-blue-500/40 text-blue-400 font-black text-xs flex items-center justify-center">
-                    X
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <span>{currentRoom.members[0]?.display_name || 'Anfitrião'}</span>
-                      {currentRoom.members[0]?.user_id === currentUserId && (
-                        <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
-                      )}
-                      <Crown className="w-3 h-3 text-amber-400 shrink-0" />
-                    </div>
-                    <div className="text-[10px] text-slate-400">Slot 1 · Host</div>
-                  </div>
-                </div>
-                <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                  <UserCheck className="w-3.5 h-3.5" /> Pronto
-                </span>
-              </div>
-
-              {/* Slot 2: Guest */}
-              {guestMember ? (
-                <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-750 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-purple-600/30 border border-purple-500/40 text-purple-400 font-black text-xs flex items-center justify-center">
-                      O
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <span>{guestMember.display_name}</span>
-                        {guestMember.user_id === currentUserId && (
-                          <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
-                        )}
-                      </div>
-                      <div className="text-[10px] text-slate-400">Slot 2 · Convidado</div>
-                    </div>
-                  </div>
-                  <span
-                    className={`text-[11px] font-bold flex items-center gap-1 ${
-                      guestMember.is_ready ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
-                  >
-                    {guestMember.is_ready ? (
-                      <>
-                        <UserCheck className="w-3.5 h-3.5" /> Pronto
-                      </>
-                    ) : (
-                      <>
-                        <UserX className="w-3.5 h-3.5" /> Preparando...
-                      </>
-                    )}
+        {mode === 'waiting' && (
+          <>
+            {/* Caso 1: Sala carregada com sucesso */}
+            {currentRoom && (
+              <div className="space-y-5">
+                {/* Room Code Card */}
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Código para convidar amigo:
                   </span>
-                </div>
-              ) : (
-                <div className="p-3.5 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 text-center">
-                  <p className="text-xs text-slate-400 animate-pulse">
-                    Aguardando entrada do segundo jogador...
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-2xl sm:text-3xl font-mono font-black text-blue-400 tracking-wider">
+                      {currentRoom.code}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={copyCodeToClipboard}
+                      className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                      title="Copiar Código"
+                    >
+                      {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {copied ? 'Código copiado para a área de transferência!' : 'Compartilhe este código com quem vai jogar'}
                   </p>
                 </div>
-              )}
-            </div>
 
-            {/* Action buttons */}
-            <div className="pt-2 flex flex-col gap-2">
-              {isHost ? (
-                <button
-                  onClick={handleStartMatch}
-                  disabled={isLoading || !canStartMatch}
-                  className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
-                >
-                  {isLoading ? <RotateCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  <span>{canStartMatch ? 'Iniciar Partida Agora' : 'Aguardando 2º Jogador'}</span>
-                </button>
-              ) : (
-                <button
-                  onClick={handleToggleReady}
-                  disabled={isLoading}
-                  className={`w-full py-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 ${
-                    myMember?.is_ready
-                      ? 'bg-slate-800 text-slate-200 hover:bg-slate-750'
-                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-900/30'
-                  }`}
-                >
-                  {isLoading && <RotateCw className="w-4 h-4 animate-spin" />}
-                  <span>{myMember?.is_ready ? 'Cancelar Prontidão' : 'Estou Pronto para Jogar!'}</span>
-                </button>
-              )}
+                {/* Players list */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-400 font-semibold px-1">
+                    <span>Participantes ({currentRoom.members.length}/2)</span>
+                    <Users className="w-3.5 h-3.5" />
+                  </div>
 
-              <button
-                onClick={handleLeaveRoom}
-                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 font-semibold text-xs transition-colors border border-slate-800"
-              >
-                Sair da Sala
-              </button>
-            </div>
-          </div>
+                  {/* Slot 1: Host */}
+                  <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-750 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-blue-600/30 border border-blue-500/40 text-blue-400 font-black text-xs flex items-center justify-center">
+                        X
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span>{currentRoom.members[0]?.display_name || 'Anfitrião'}</span>
+                          {currentRoom.members[0]?.user_id === currentUserId && (
+                            <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
+                          )}
+                          <Crown className="w-3 h-3 text-amber-400 shrink-0" />
+                        </div>
+                        <div className="text-[10px] text-slate-400">Slot 1 · Host</div>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                      <UserCheck className="w-3.5 h-3.5" /> Pronto
+                    </span>
+                  </div>
+
+                  {/* Slot 2: Guest */}
+                  {guestMember ? (
+                    <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-750 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-purple-600/30 border border-purple-500/40 text-purple-400 font-black text-xs flex items-center justify-center">
+                          O
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <span>{guestMember.display_name}</span>
+                            {guestMember.user_id === currentUserId && (
+                              <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400">Slot 2 · Convidado</div>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[11px] font-bold flex items-center gap-1 ${
+                          guestMember.is_ready ? 'text-emerald-400' : 'text-amber-400'
+                        }`}
+                      >
+                        {guestMember.is_ready ? (
+                          <>
+                            <UserCheck className="w-3.5 h-3.5" /> Pronto
+                          </>
+                        ) : (
+                          <>
+                            <UserX className="w-3.5 h-3.5" /> Preparando...
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 text-center">
+                      <p className="text-xs text-slate-400 animate-pulse">
+                        Aguardando entrada do segundo jogador...
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="pt-2 flex flex-col gap-2">
+                  {isHost ? (
+                    <button
+                      onClick={handleStartMatch}
+                      disabled={isLoading || !canStartMatch}
+                      className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+                    >
+                      {isLoading ? <RotateCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                      <span>{canStartMatch ? 'Iniciar Partida Agora' : 'Aguardando 2º Jogador'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleToggleReady}
+                      disabled={isLoading}
+                      className={`w-full py-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 ${
+                        myMember?.is_ready
+                          ? 'bg-slate-800 text-slate-200 hover:bg-slate-750'
+                          : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-900/30'
+                      }`}
+                    >
+                      {isLoading && <RotateCw className="w-4 h-4 animate-spin" />}
+                      <span>{myMember?.is_ready ? 'Cancelar Prontidão' : 'Estou Pronto para Jogar!'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={handleLeaveRoom}
+                    className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 font-semibold text-xs transition-colors border border-slate-800"
+                  >
+                    Sair da Sala
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Caso 2: Em carregamento inicial da sala */}
+            {!currentRoom && isLoading && (
+              <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
+                <RefreshCw className="w-8 h-8 animate-spin text-blue-400" />
+                <p className="text-sm font-semibold text-white">Carregando dados da sala...</p>
+                <p className="text-xs text-slate-400">Sincronizando participantes e estado oficial.</p>
+              </div>
+            )}
+
+            {/* Caso 3: Falha de carregamento da sala (Nunca renderiza modal vazio) */}
+            {!currentRoom && !isLoading && (
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-4">
+                <div className="w-10 h-10 rounded-full bg-red-950/60 border border-red-800/80 text-red-400 flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-white">Falha ao carregar a sala</h3>
+                  <p className="text-xs text-slate-400">
+                    {errorMessage || 'A sala foi criada, mas não foi possível carregar seus dados no momento.'}
+                  </p>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleLeaveRoom}
+                    className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Voltar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => pendingRoomId && loadRoom(pendingRoomId)}
+                    disabled={!pendingRoomId}
+                    className="w-2/3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span>Tentar Novamente</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
