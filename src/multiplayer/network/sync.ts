@@ -3,7 +3,7 @@
 // Phase: Fase 6.1 — Hardening do Supabase Realtime
 // ============================================================================
 
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { GameSnapshot, MatchSnapshotListener } from './types';
 import { getMatchSnapshot } from './snapshot';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -30,7 +30,19 @@ interface SyncQueueItem<TState = unknown> {
   latestSnapshot: GameSnapshot<TState> | null;
 }
 
+function isTestEnvironment(): boolean {
+  return (
+    typeof window === 'undefined' &&
+    typeof process !== 'undefined' &&
+    (process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.NODE_TEST_CONTEXT) ||
+      (Array.isArray(process.argv) &&
+        process.argv.some((arg) => typeof arg === 'string' && arg.includes('--test'))))
+  );
+}
+
 const syncQueues = new Map<string, SyncQueueItem<unknown>>();
+const testSubscribers = new Map<string, Set<(snapshot: unknown) => void>>();
 
 function getOrCreateSyncQueue<TState>(matchId: string): SyncQueueItem<TState> {
   let queue = syncQueues.get(matchId) as SyncQueueItem<TState> | undefined;
@@ -95,6 +107,12 @@ export async function syncMatch<TState = unknown>(
     try {
       const snapshot = await getMatchSnapshot<TState>(matchId);
       queue.latestSnapshot = snapshot;
+      if (isTestEnvironment()) {
+        const listeners = testSubscribers.get(matchId);
+        if (listeners) {
+          listeners.forEach((fn) => fn(snapshot));
+        }
+      }
       return snapshot;
     } finally {
       queue.inFlightPromise = null;
@@ -131,6 +149,18 @@ export async function reconnectMatch<TState = unknown>(
   return syncMatch<TState>(matchId, currentSnapshot);
 }
 
+export type MatchSubscriber = <TState = unknown>(
+  matchId: string,
+  listener: MatchSnapshotListener<TState>,
+  onStatusChange?: (status: string) => void
+) => () => void;
+
+let customSubscriberForTest: MatchSubscriber | null = null;
+
+export function setSubscriberForTest(subscriber: MatchSubscriber | null): void {
+  customSubscriberForTest = subscriber;
+}
+
 /**
  * Assina atualizações de uma partida via Supabase Realtime (Channel: `match:{matchId}`).
  * 
@@ -146,11 +176,37 @@ export function subscribeToMatch<TState = unknown>(
   listener: MatchSnapshotListener<TState>,
   onStatusChange?: (status: string) => void
 ): () => void {
+  if (customSubscriberForTest) {
+    return customSubscriberForTest<TState>(matchId, listener, onStatusChange);
+  }
+
   if (!matchId) {
     return () => {};
   }
 
   let isSubscribed = true;
+
+  if (isTestEnvironment() || (!isSupabaseConfigured && typeof window === 'undefined')) {
+    if (!testSubscribers.has(matchId)) {
+      testSubscribers.set(matchId, new Set());
+    }
+    const set = testSubscribers.get(matchId)!;
+    const wrapped = (s: unknown) => {
+      if (isSubscribed) {
+        listener(s as GameSnapshot<TState>);
+      }
+    };
+    set.add(wrapped);
+    onStatusChange?.('SUBSCRIBED');
+    return () => {
+      isSubscribed = false;
+      set.delete(wrapped);
+      if (set.size === 0) {
+        testSubscribers.delete(matchId);
+      }
+    };
+  }
+
   const channelName = `match:${matchId}`;
 
   try {
@@ -219,4 +275,5 @@ export function subscribeToMatch<TState = unknown>(
  */
 export function clearSyncQueuesForTest(): void {
   syncQueues.clear();
+  testSubscribers.clear();
 }

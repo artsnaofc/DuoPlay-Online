@@ -4,9 +4,10 @@ import { GameItem } from '@/types/platform';
 
 interface GameCardProps {
   game: GameItem;
+  onPlay?: (gameId: string) => void;
 }
 
-export const GameCard: React.FC<GameCardProps> = ({ game }) => {
+export const GameCard: React.FC<GameCardProps> = ({ game, onPlay }) => {
   const renderIcon = () => {
     switch (game.iconName) {
       case 'grid':
@@ -69,17 +70,34 @@ export const GameCard: React.FC<GameCardProps> = ({ game }) => {
         ))}
       </div>
 
-      {/* Footer / Availability Status (Honest, clean, no fake buttons) */}
+      {/* Footer / Availability Status */}
       <div className="pt-3 border-t border-slate-800/60 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Clock className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-xs font-medium text-amber-300">
-            Disponível em breve
-          </span>
-        </div>
-        <span className="text-[11px] text-slate-500">
-          Partidas Online
-        </span>
+        {game.isAvailable ? (
+          <>
+            <button
+              type="button"
+              onClick={() => onPlay?.(game.id)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/30 transition-all cursor-pointer active:scale-95"
+            >
+              <span>Jogar Agora</span>
+            </button>
+            <span className="text-[11px] font-semibold text-emerald-400">
+              Disponível Online
+            </span>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-xs font-medium text-amber-300">
+                Disponível em breve
+              </span>
+            </div>
+            <span className="text-[11px] text-slate-500">
+              Partidas Online
+            </span>
+          </>
+        )}
       </div>
     </article>
   );

@@ -22,7 +22,7 @@ const GAMES: GameItem[] = [
       'Placar de partidas e opção de revanche',
       'Detecção automática de vitórias e empates',
     ],
-    isAvailable: false,
+    isAvailable: true,
   },
   {
     id: 'pong',
@@ -111,9 +111,26 @@ const HOW_IT_WORKS: HowItWorksStep[] = [
   },
 ];
 
-export const HomePage: React.FC = () => {
+export interface HomePageProps {
+  onPlayGame?: (gameId: string) => void;
+  onOpenLobby?: () => void;
+}
+
+export const HomePage: React.FC<HomePageProps> = ({ onPlayGame, onOpenLobby }) => {
   const { isAuthenticated } = useAuth();
   const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const handleGamePlay = (gameId: string) => {
+    if (!isAuthenticated) {
+      setAuthModalOpen(true);
+      return;
+    }
+    if (onPlayGame) {
+      onPlayGame(gameId);
+    } else if (onOpenLobby) {
+      onOpenLobby();
+    }
+  };
 
   return (
     <div className="space-y-24">
@@ -189,7 +206,7 @@ export const HomePage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {GAMES.map((game) => (
-            <GameCard key={game.id} game={game} />
+            <GameCard key={game.id} game={game} onPlay={handleGamePlay} />
           ))}
         </div>
       </section>
