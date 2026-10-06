@@ -93,3 +93,26 @@ Concorrência de cliques e latência de rede são neutralizadas no nível do ban
    - `UNIQUE (room_id, slot_number)` impede fisicamente que dois jogadores ocupem o mesmo slot na sala.
    - `UNIQUE (match_id, slot)` assegura exclusividade de assentos na partida.
    - `UNIQUE (match_id, user_id)` impede duplicidade de um mesmo usuário na mesma partida.
+
+---
+
+## 6. Políticas de RLS da Tabela Profiles (Implementadas na Fase 2)
+
+Na Fase 2, a tabela `public.profiles` foi protegida com as seguintes políticas específicas:
+
+- **`profiles_select_own`**: `FOR SELECT TO authenticated USING (auth.uid() = id);`  
+  O usuário só pode consultar seu próprio perfil.
+- **`profiles_insert_own`**: `FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);`  
+  O usuário só pode criar o perfil vinculado ao seu próprio `auth.uid()`.
+- **`profiles_update_own`**: `FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);`  
+  O usuário só pode atualizar o próprio perfil e não pode alterar o ID para outro usuário.
+- **Grants**:
+  - `REVOKE ALL ON public.profiles FROM PUBLIC, anon;`
+  - `GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;`
+- **Trigger `handle_new_user()`**:
+  - Executado em `AFTER INSERT ON auth.users`.
+  - Configurado com `SECURITY DEFINER` e `SET search_path = public, pg_temp;`.
+  - Cria automaticamente o perfil garantindo username sanitizado e único sem intervenção do cliente.
+- **Testes de RLS**:
+  - Validados através da suite de testes transacional em `supabase/tests/profiles_rls_test.sql`.
+

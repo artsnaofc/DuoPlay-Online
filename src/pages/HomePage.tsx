@@ -1,7 +1,9 @@
-import React from 'react';
-import { ArrowRight, Sparkles, Smartphone, ShieldCheck, Users, Zap, KeyRound, Gamepad2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowRight, Sparkles, Smartphone, ShieldCheck, Users, Zap, KeyRound, Gamepad2, UserPlus } from 'lucide-react';
 import { GameCard } from '@/components/GameCard';
 import { GameItem, PlatformFeature, HowItWorksStep } from '@/types/platform';
+import { useAuth } from '@/hooks/useAuth';
+import { AuthModal } from '@/components/auth/AuthModal';
 
 const GAMES: GameItem[] = [
   {
@@ -110,6 +112,9 @@ const HOW_IT_WORKS: HowItWorksStep[] = [
 ];
 
 export const HomePage: React.FC = () => {
+  const { isAuthenticated } = useAuth();
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
   return (
     <div className="space-y-24">
       {/* 1. Hero Section */}
@@ -265,6 +270,41 @@ export const HomePage: React.FC = () => {
           ))}
         </div>
       </section>
+
+      {/* 5. Player Account CTA (Unauthenticated Only) */}
+      {!isAuthenticated && (
+        <section className="max-w-4xl mx-auto px-4 sm:px-6">
+          <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-blue-950/30 via-slate-900 to-indigo-950/20 p-8 sm:p-10 text-center relative overflow-hidden">
+            <div className="relative z-10 space-y-4 max-w-xl mx-auto">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 mb-1">
+                <UserPlus className="w-6 h-6" />
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                Garanta seu Nome de Jogador
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Cadastre-se gratuitamente no DuoPlay-Online para reservar seu identificador único e salvar suas partidas.
+              </p>
+              <div className="pt-2">
+                <button
+                  onClick={() => setAuthModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-blue-900/40 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
+                >
+                  <span>Criar Conta Gratuita</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Auth Modal Triggered by CTA */}
+      <AuthModal
+        isOpen={authModalOpen}
+        initialMode="register"
+        onClose={() => setAuthModalOpen(false)}
+      />
     </div>
   );
 };

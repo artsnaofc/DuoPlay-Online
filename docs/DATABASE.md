@@ -49,13 +49,14 @@ Este documento especifica o modelo relacional da plataforma DuoPlay-Online no Po
 
 ---
 
-## 2. Entidades Principais (Escopo Inicial)
+## 2. Entidades Principais
 
-### 2.1. `profiles`
-- **Finalidade**: Perfil público do jogador, sincronizado com o Supabase Auth (`auth.users`), com estatísticas oficiais calculadas pelo servidor.
+### 2.1. `profiles` [Implementada na Fase 2]
+- **Status**: Implementada via migration versionada `supabase/migrations/20261005000000_create_profiles.sql`.
+- **Finalidade**: Perfil público do jogador, sincronizado automaticamente com o Supabase Auth (`auth.users`) através do trigger `on_auth_user_created` (`public.handle_new_user()`).
 - **Campos**:
   - `id`: `UUID` (PK, referenciando `auth.users(id)` ON DELETE CASCADE).
-  - `username`: `VARCHAR(32)` (NOT NULL, UNIQUE) - Identificador legível.
+  - `username`: `VARCHAR(32)` (NOT NULL, UNIQUE) - Identificador legível (mínimo 3 caracteres).
   - `display_name`: `VARCHAR(50)` (NOT NULL) - Nome formatado para exibição.
   - `avatar_url`: `TEXT` (NULLABLE) - URL de avatar ou placeholder gerado.
   - `total_matches`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
@@ -64,7 +65,16 @@ Este documento especifica o modelo relacional da plataforma DuoPlay-Online no Po
   - `total_losses`: `INTEGER` (DEFAULT 0, NOT NULL, CHECK >= 0).
   - `created_at`: `TIMESTAMPTZ` (DEFAULT now(), NOT NULL).
   - `updated_at`: `TIMESTAMPTZ` (DEFAULT now(), NOT NULL).
-- **Índices**: `CREATE INDEX ON profiles(LOWER(username));`
+- **Índices Criados**:
+  - `CREATE INDEX idx_profiles_username_lower ON public.profiles (LOWER(username));`
+  - `CREATE INDEX idx_profiles_created_at ON public.profiles (created_at DESC);`
+- **Políticas de RLS**:
+  - `profiles_select_own` (SELECT): `auth.uid() = id`
+  - `profiles_insert_own` (INSERT): `auth.uid() = id`
+  - `profiles_update_own` (UPDATE): `auth.uid() = id` (protegendo linha existente e novo valor)
+- **Grants**:
+  - `REVOKE ALL ON public.profiles FROM PUBLIC, anon;`
+  - `GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;`
 
 ---
 
