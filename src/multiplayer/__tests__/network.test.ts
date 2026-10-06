@@ -1,12 +1,14 @@
 // ============================================================================
 // Unit Tests: Network Engine & GameSessionController — DuoPlay-Online
-// Phase: Fase 5 — Game Snapshot + Network/Sync Engine
+// Phase: Fase 5.1 — Hardening do Network Engine (Action ID & UUID Stability)
 // ============================================================================
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   generateActionId,
+  generateActionIdFromRandomValues,
+  formatUuidV4FromBytes,
   normalizeNetworkError,
   calculateMonotonicVersion,
   mapDatabaseToGameSnapshot,
@@ -17,22 +19,115 @@ import {
 import { GameSessionController } from '../controllers/GameSessionController';
 import type { MatchRow, MatchPlayerRow } from '@/types/database';
 
-describe('Network Engine: Action ID & Idempotency', () => {
-  it('1. Deve gerar actionId no formato UUID v4 válido e único', () => {
+describe('Network Engine: Action ID & UUID v4 Generation (Fase 5.1 Hardening)', () => {
+  const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  it('1. Deve gerar actionId no formato UUID v4 válido e único usando crypto.randomUUID', () => {
     const id1 = generateActionId();
     const id2 = generateActionId();
 
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
     assert.equal(typeof id1, 'string');
-    assert.match(id1, uuidRegex);
-    assert.match(id2, uuidRegex);
+    assert.match(id1, uuidV4Regex);
+    assert.match(id2, uuidV4Regex);
     assert.notEqual(id1, id2, 'Dois actionIds gerados não devem ser iguais');
+  });
+
+  it('2. Deve gerar UUID v4 válido e determinístico através de crypto.getRandomValues e formatUuidV4FromBytes', () => {
+    // Simular array de 16 bytes controlados
+    const bytes = new Uint8Array([
+      0x01, 0x23, 0x45, 0x67, // 8 hex
+      0x89, 0xab,             // 4 hex
+      0x00, 0xef,             // byte 6 deve virar 0x40 (versão 4)
+      0x00, 0x12,             // byte 8 deve virar 0x80..0xbf (variante 1)
+      0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde // 12 hex
+    ]);
+
+    const uuid = formatUuidV4FromBytes(bytes);
+    assert.match(uuid, uuidV4Regex);
+    assert.equal(uuid.charAt(14), '4', 'O 15º caractere (versão) deve ser 4');
+    assert.match(uuid.charAt(19), /[89ab]/i, 'O 20º caractere (variante) deve ser 8, 9, a ou b');
+
+    // Testar generateActionIdFromRandomValues com mock de Crypto
+    const mockCrypto: Pick<Crypto, 'getRandomValues'> = {
+      getRandomValues: <T extends ArrayBufferView | null>(array: T): T => {
+        if (array && 'set' in array && array instanceof Uint8Array) {
+          for (let i = 0; i < array.length; i++) {
+            array[i] = (i * 17 + 5) & 0xff;
+          }
+        }
+        return array;
+      },
+    };
+
+    const idFromRandomValues = generateActionIdFromRandomValues(mockCrypto);
+    assert.match(idFromRandomValues, uuidV4Regex);
+  });
+});
+
+describe('Network Engine: Action ID Stability & Retry Idempotency (Fase 5.1 Hardening)', () => {
+  it('3. Deve preservar actionId explícito fornecido no envelope ao submeter ação', async () => {
+    const fixedActionId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+
+    const result = await submitAction({
+      matchId: '', // Força validação rápida sem chamada remota
+      actionType: 'place_mark',
+      payload: { position: 4 },
+      actionId: fixedActionId,
+    });
+
+    assert.equal(result.actionId, fixedActionId, 'O actionId no resultado deve ser idêntico ao fornecido');
+  });
+
+  it('4. Deve reutilizar o mesmo actionId durante retries da mesma operação lógica', async () => {
+    // Cenário: Operação lógica gerou actionId na primeira tentativa
+    const originalActionId = generateActionId();
+
+    const attempt1Input = {
+      matchId: 'invalid-match-uuid-1',
+      actionType: 'place_mark',
+      payload: { position: 4 },
+      actionId: originalActionId,
+    };
+
+    const attempt1Result = await submitAction(attempt1Input);
+    assert.equal(attempt1Result.actionId, originalActionId);
+
+    // Tentativa 2 (Retry da mesma operação lógica)
+    const attempt2Input = {
+      matchId: 'invalid-match-uuid-1',
+      actionType: 'place_mark',
+      payload: { position: 4 },
+      actionId: attempt1Result.actionId, // Passa o mesmo actionId da tentativa 1
+    };
+
+    const attempt2Result = await submitAction(attempt2Input);
+
+    assert.equal(
+      attempt2Result.actionId,
+      originalActionId,
+      'A segunda tentativa deve reutilizar estritamente o actionId da primeira'
+    );
+    assert.equal(
+      attempt1Result.actionId,
+      attempt2Result.actionId,
+      'Ambas as tentativas devem compartilhar exatamente o mesmo actionId'
+    );
+  });
+
+  it('5. GameSessionController deve preservar actionId em submissão explícita e retry', async () => {
+    const controller = new GameSessionController('mock-match-456');
+    const fixedActionId = 'e0000000-0000-4000-8000-000000000001';
+
+    const result = await controller.submitAction('place_mark', { position: 2 }, fixedActionId);
+
+    assert.equal(result.actionId, fixedActionId, 'O controller deve repassar e retornar o actionId fornecido');
+
+    controller.destroy();
   });
 });
 
 describe('Network Engine: Error Taxonomy & Normalization', () => {
-  it('2. Deve normalizar erros SQLSTATE mapeados do Supabase', () => {
+  it('6. Deve normalizar erros SQLSTATE mapeados do Supabase', () => {
     // P0032 -> CELL_ALREADY_OCCUPIED (rule)
     const errOccupied = normalizeNetworkError({
       code: 'P0032',
@@ -67,7 +162,7 @@ describe('Network Engine: Error Taxonomy & Normalization', () => {
     assert.equal(errAuth.category, 'auth');
   });
 
-  it('3. Deve normalizar erros de transporte / rede e mensagens genéricas', () => {
+  it('7. Deve normalizar erros de transporte / rede e mensagens genéricas', () => {
     const netErr = normalizeNetworkError(new Error('Failed to fetch'));
     assert.equal(netErr.code, 'NETWORK_ERROR');
     assert.equal(netErr.category, 'transport');
@@ -81,7 +176,7 @@ describe('Network Engine: Error Taxonomy & Normalization', () => {
 });
 
 describe('Network Engine: Snapshot Mapping & Monotonic Versioning', () => {
-  it('4. Deve mapear linhas relacionais do PostgreSQL para GameSnapshot imutável e ordenar jogadores por slot', () => {
+  it('8. Deve mapear linhas relacionais do PostgreSQL para GameSnapshot imutável e ordenar jogadores por slot', () => {
     const mockMatch: MatchRow & { match_players: MatchPlayerRow[] } = {
       id: 'm0000000-0000-0000-0000-000000000001',
       room_id: 'r0000000-0000-0000-0000-000000000001',
@@ -153,7 +248,7 @@ describe('Network Engine: Snapshot Mapping & Monotonic Versioning', () => {
     assert.equal(snapshot.state.board[4], 'O');
   });
 
-  it('5. Deve calcular versão monotônica estritamente baseada no servidor', () => {
+  it('9. Deve calcular versão monotônica estritamente baseada no servidor', () => {
     // Turno em andamento
     assert.equal(calculateMonotonicVersion(1, 0, false), 1);
     assert.equal(calculateMonotonicVersion(5, 4, false), 5);
@@ -161,7 +256,7 @@ describe('Network Engine: Snapshot Mapping & Monotonic Versioning', () => {
     assert.equal(calculateMonotonicVersion(5, 5, true), 6);
   });
 
-  it('6. Deve tratar jogadores sem gameSymbol de forma segura (nulo para jogos agnósticos)', () => {
+  it('10. Deve tratar jogadores sem gameSymbol de forma segura (nulo para jogos agnósticos)', () => {
     const playerSnapshot = mapMatchPlayerRow({
       user_id: 'u-123',
       slot: 1,
@@ -173,7 +268,7 @@ describe('Network Engine: Snapshot Mapping & Monotonic Versioning', () => {
 });
 
 describe('Network Engine: Action Submission Local Validation', () => {
-  it('7. Deve rejeitar matchId vazio ou actionType inválido antes da rede', async () => {
+  it('11. Deve rejeitar matchId vazio ou actionType inválido antes da rede', async () => {
     const res1 = await submitAction({
       matchId: '',
       actionType: 'place_mark',
@@ -193,7 +288,7 @@ describe('Network Engine: Action Submission Local Validation', () => {
 });
 
 describe('GameSessionController: State Management & Lifecycle', () => {
-  it('8. Deve gerenciar listeners e transições de estado de sincronização', () => {
+  it('12. Deve gerenciar listeners e transições de estado de sincronização', () => {
     const controller = new GameSessionController('match-mock-123');
     let emittedSyncState = '';
 
@@ -210,7 +305,7 @@ describe('GameSessionController: State Management & Lifecycle', () => {
 });
 
 describe('Network Engine: Realtime Subscription Contract', () => {
-  it('9. Deve fornecer contrato de unsubscribe seguro sem falhas', () => {
+  it('13. Deve fornecer contrato de unsubscribe seguro sem falhas', () => {
     const unsubscribe = subscribeToMatch('m1', () => {});
     assert.equal(typeof unsubscribe, 'function');
     assert.doesNotThrow(() => unsubscribe());

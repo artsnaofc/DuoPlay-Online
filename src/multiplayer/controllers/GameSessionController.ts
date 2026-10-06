@@ -114,6 +114,11 @@ export class GameSessionController<TState = unknown> {
     payload: TPayload,
     actionId?: string
   ): Promise<ActionResult<TState>> {
+    const resolvedActionId =
+      actionId && typeof actionId === 'string' && actionId.trim() !== ''
+        ? actionId.trim()
+        : networkEngine.generateActionId();
+
     if (this.isDestroyed) {
       return {
         accepted: false,
@@ -123,6 +128,7 @@ export class GameSessionController<TState = unknown> {
           message: 'Sessão encerrada.',
           category: 'infrastructure',
         },
+        actionId: resolvedActionId,
       };
     }
 
@@ -130,7 +136,7 @@ export class GameSessionController<TState = unknown> {
       matchId: this.matchId,
       actionType,
       payload,
-      actionId,
+      actionId: resolvedActionId,
     };
 
     const result = await networkEngine.submitAction<TState, TPayload>(input);

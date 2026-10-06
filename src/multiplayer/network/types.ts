@@ -82,6 +82,7 @@ export interface ActionResult<TState = unknown> {
   accepted: boolean;
   snapshot: GameSnapshot<TState> | null;
   error: NetworkError | null;
+  actionId: string;
   isIdempotent?: boolean;
 }
 

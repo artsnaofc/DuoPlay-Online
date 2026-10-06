@@ -107,6 +107,7 @@ export function useGameSession<TState = unknown>(
             message: 'Nenhuma sessão de jogo ativa.',
             category: 'infrastructure',
           },
+          actionId: actionId || '',
         };
       }
       return controllerRef.current.submitAction<TPayload>(actionType, payload, actionId);
