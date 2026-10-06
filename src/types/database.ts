@@ -108,6 +108,8 @@ export type MatchPlayerRow = {
   is_winner: boolean;
   disconnected_at: string | null;
   grace_period_expires_at: string | null;
+  last_seen_at?: string | null;
+  connection_status?: 'connected' | 'disconnected';
   joined_at: string;
 };
 

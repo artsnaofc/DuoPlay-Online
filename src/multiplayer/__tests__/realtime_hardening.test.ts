@@ -44,6 +44,8 @@ function createMockSnapshot<TState = unknown>(
         isWinner: false,
         disconnectedAt: null,
         gracePeriodExpiresAt: null,
+        lastSeenAt: '2026-10-06T00:00:00Z',
+        connectionStatus: 'connected',
         joinedAt: '2026-10-06T00:00:00Z',
       },
     ],

@@ -67,6 +67,8 @@ function createTicTacToeSnapshot<TState = TicTacToeState>(params: {
         isWinner: params.winnerId === p1,
         disconnectedAt: null,
         gracePeriodExpiresAt: null,
+        lastSeenAt: '2026-10-06T00:00:00Z',
+        connectionStatus: 'connected',
         joinedAt: '2026-10-06T00:00:00Z',
       },
       {
@@ -77,6 +79,8 @@ function createTicTacToeSnapshot<TState = TicTacToeState>(params: {
         isWinner: params.winnerId === p2,
         disconnectedAt: null,
         gracePeriodExpiresAt: null,
+        lastSeenAt: '2026-10-06T00:00:00Z',
+        connectionStatus: 'connected',
         joinedAt: '2026-10-06T00:00:00Z',
       },
     ],

@@ -26,6 +26,8 @@ export interface MatchPlayerSnapshot {
   isWinner: boolean;
   disconnectedAt: string | null;
   gracePeriodExpiresAt: string | null;
+  lastSeenAt: string | null;
+  connectionStatus: 'connected' | 'disconnected';
   joinedAt: string;
 }
 

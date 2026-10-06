@@ -38,6 +38,7 @@ export function calculateMonotonicVersion(
  * Converte linhas relacionais do banco em MatchPlayerSnapshot tipado.
  */
 export function mapMatchPlayerRow(row: Partial<MatchPlayerRow>): MatchPlayerSnapshot {
+  const isDisconnected = Boolean(row.disconnected_at) || row.connection_status === 'disconnected';
   return {
     userId: row.user_id || '',
     slot: row.slot ?? 1,
@@ -46,6 +47,8 @@ export function mapMatchPlayerRow(row: Partial<MatchPlayerRow>): MatchPlayerSnap
     isWinner: Boolean(row.is_winner),
     disconnectedAt: row.disconnected_at ?? null,
     gracePeriodExpiresAt: row.grace_period_expires_at ?? null,
+    lastSeenAt: row.last_seen_at ?? null,
+    connectionStatus: isDisconnected ? 'disconnected' : 'connected',
     joinedAt: row.joined_at || new Date().toISOString(),
   };
 }
@@ -138,6 +141,8 @@ export async function getMatchSnapshot<TState = unknown>(
           is_winner,
           disconnected_at,
           grace_period_expires_at,
+          last_seen_at,
+          connection_status,
           joined_at
         )
       `)
