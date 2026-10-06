@@ -1,12 +1,22 @@
 // ============================================================================
 // Network Engine: Action Submission — DuoPlay-Online
-// Phase: Fase 5 — Game Snapshot + Network/Sync Engine
+// Phase: Fase 6.1 — Hardening do Supabase Realtime
 // ============================================================================
 
 import { supabase } from '@/lib/supabase';
 import type { ActionResult, SubmitActionInput } from './types';
 import { normalizeNetworkError } from './errors';
 import { getMatchSnapshot } from './snapshot';
+
+export type ActionSubmitter = <TState = unknown, TPayload = unknown>(
+  input: SubmitActionInput<TPayload>
+) => Promise<ActionResult<TState>>;
+
+let customActionSubmitter: ActionSubmitter | null = null;
+
+export function setActionSubmitterForTest(submitter: ActionSubmitter | null): void {
+  customActionSubmitter = submitter;
+}
 
 /**
  * Converte um buffer de 16 bytes em string UUID v4 (RFC 4122).
@@ -118,6 +128,10 @@ export async function submitAction<TState = unknown, TPayload = unknown>(
       }),
       actionId,
     };
+  }
+
+  if (customActionSubmitter) {
+    return customActionSubmitter<TState, TPayload>(input);
   }
 
   const clientTimestamp = input.clientTimestamp ?? Date.now();

@@ -16,6 +16,7 @@ import {
   subscribeToMatch,
   submitAction,
 } from '../network';
+import { setActionSubmitterForTest } from '../network/actions';
 import { GameSessionController } from '../controllers/GameSessionController';
 import type { MatchRow, MatchPlayerRow } from '@/types/database';
 
@@ -79,50 +80,76 @@ describe('Network Engine: Action ID Stability & Retry Idempotency (Fase 5.1 Hard
   });
 
   it('4. Deve reutilizar o mesmo actionId durante retries da mesma operação lógica', async () => {
-    // Cenário: Operação lógica gerou actionId na primeira tentativa
-    const originalActionId = generateActionId();
+    setActionSubmitterForTest(async (input) => {
+      return {
+        accepted: false,
+        snapshot: null,
+        error: { code: 'NETWORK_ERROR', message: 'Simulated retry error', category: 'transport' },
+        actionId: input.actionId || '',
+      };
+    });
 
-    const attempt1Input = {
-      matchId: 'invalid-match-uuid-1',
-      actionType: 'place_mark',
-      payload: { position: 4 },
-      actionId: originalActionId,
-    };
+    try {
+      // Cenário: Operação lógica gerou actionId na primeira tentativa
+      const originalActionId = generateActionId();
 
-    const attempt1Result = await submitAction(attempt1Input);
-    assert.equal(attempt1Result.actionId, originalActionId);
+      const attempt1Input = {
+        matchId: 'invalid-match-uuid-1',
+        actionType: 'place_mark',
+        payload: { position: 4 },
+        actionId: originalActionId,
+      };
 
-    // Tentativa 2 (Retry da mesma operação lógica)
-    const attempt2Input = {
-      matchId: 'invalid-match-uuid-1',
-      actionType: 'place_mark',
-      payload: { position: 4 },
-      actionId: attempt1Result.actionId, // Passa o mesmo actionId da tentativa 1
-    };
+      const attempt1Result = await submitAction(attempt1Input);
+      assert.equal(attempt1Result.actionId, originalActionId);
 
-    const attempt2Result = await submitAction(attempt2Input);
+      // Tentativa 2 (Retry da mesma operação lógica)
+      const attempt2Input = {
+        matchId: 'invalid-match-uuid-1',
+        actionType: 'place_mark',
+        payload: { position: 4 },
+        actionId: attempt1Result.actionId, // Passa o mesmo actionId da tentativa 1
+      };
 
-    assert.equal(
-      attempt2Result.actionId,
-      originalActionId,
-      'A segunda tentativa deve reutilizar estritamente o actionId da primeira'
-    );
-    assert.equal(
-      attempt1Result.actionId,
-      attempt2Result.actionId,
-      'Ambas as tentativas devem compartilhar exatamente o mesmo actionId'
-    );
+      const attempt2Result = await submitAction(attempt2Input);
+
+      assert.equal(
+        attempt2Result.actionId,
+        originalActionId,
+        'A segunda tentativa deve reutilizar estritamente o actionId da primeira'
+      );
+      assert.equal(
+        attempt1Result.actionId,
+        attempt2Result.actionId,
+        'Ambas as tentativas devem compartilhar exatamente o mesmo actionId'
+      );
+    } finally {
+      setActionSubmitterForTest(null);
+    }
   });
 
   it('5. GameSessionController deve preservar actionId em submissão explícita e retry', async () => {
-    const controller = new GameSessionController('mock-match-456');
-    const fixedActionId = 'e0000000-0000-4000-8000-000000000001';
+    setActionSubmitterForTest(async (input) => {
+      return {
+        accepted: true,
+        snapshot: null,
+        error: null,
+        actionId: input.actionId || '',
+      };
+    });
 
-    const result = await controller.submitAction('place_mark', { position: 2 }, fixedActionId);
+    try {
+      const controller = new GameSessionController('mock-match-456');
+      const fixedActionId = 'e0000000-0000-4000-8000-000000000001';
 
-    assert.equal(result.actionId, fixedActionId, 'O controller deve repassar e retornar o actionId fornecido');
+      const result = await controller.submitAction('place_mark', { position: 2 }, fixedActionId);
 
-    controller.destroy();
+      assert.equal(result.actionId, fixedActionId, 'O controller deve repassar e retornar o actionId fornecido');
+
+      controller.destroy();
+    } finally {
+      setActionSubmitterForTest(null);
+    }
   });
 });
 

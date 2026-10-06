@@ -1,6 +1,6 @@
 // ============================================================================
 // Network Engine: Synchronization & Realtime Subscription — DuoPlay-Online
-// Phase: Fase 6 — Supabase Realtime + Sincronização Multiplayer
+// Phase: Fase 6.1 — Hardening do Supabase Realtime
 // ============================================================================
 
 import { supabase } from '@/lib/supabase';
@@ -8,10 +8,25 @@ import type { GameSnapshot, MatchSnapshotListener } from './types';
 import { getMatchSnapshot } from './snapshot';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
-// Fila de sincronização com coalescência para evitar tempestade de requisições concorrentes
+/**
+ * Estrutura de gerenciamento de fila de sincronização por partida.
+ * Implementa coalescência com garantia de entrega do snapshot mais recente:
+ * 
+ * 1. inFlightPromise: Sincronização atualmente em execução contra o PostgreSQL.
+ * 2. queuedDeferred: Próxima sincronização agendada para rodar assim que a atual terminar.
+ *    Todos os chamadores concorrentes que chegam durante o inFlight compartilham
+ *    esta mesma Promise futura.
+ * 3. latestSnapshot: Cache em memória do último snapshot autoritativo retornado.
+ */
+interface DeferredSync<TState = unknown> {
+  promise: Promise<GameSnapshot<TState>>;
+  resolve: (snapshot: GameSnapshot<TState>) => void;
+  reject: (error: unknown) => void;
+}
+
 interface SyncQueueItem<TState = unknown> {
   inFlightPromise: Promise<GameSnapshot<TState>> | null;
-  hasPendingSync: boolean;
+  queuedDeferred: DeferredSync<TState> | null;
   latestSnapshot: GameSnapshot<TState> | null;
 }
 
@@ -22,7 +37,7 @@ function getOrCreateSyncQueue<TState>(matchId: string): SyncQueueItem<TState> {
   if (!queue) {
     queue = {
       inFlightPromise: null,
-      hasPendingSync: false,
+      queuedDeferred: null,
       latestSnapshot: null,
     };
     syncQueues.set(matchId, queue as SyncQueueItem<unknown>);
@@ -31,10 +46,14 @@ function getOrCreateSyncQueue<TState>(matchId: string): SyncQueueItem<TState> {
 }
 
 /**
- * Sincroniza o estado local do cliente com a verdade absoluta do PostgreSQL.
- * Implementa coalescência de requisições concorrentes (evita tempestade de requests
- * caso múltiplos eventos Realtime cheguem em milissegundos próximos).
- * O PostgreSQL vence sempre.
+ * Sincroniza o estado local com a autoridade absoluta do PostgreSQL.
+ * Implementa coalescência estrita (Request Coalescing):
+ * 
+ * - Se nenhuma requisição estiver em voo: executa imediatamente.
+ * - Se já houver uma requisição em voo: enfileira uma próxima requisição.
+ * - Se múltiplos eventos chegarem durante o voo: todos aguardam a MESMA próxima
+ *   requisição, evitando tempestade de requisições e garantindo que o snapshot
+ *   mais recente seja entregue a todos os chamadores.
  */
 export async function syncMatch<TState = unknown>(
   matchId: string,
@@ -46,14 +65,33 @@ export async function syncMatch<TState = unknown>(
 
   const queue = getOrCreateSyncQueue<TState>(matchId);
 
-  // Se já houver um sync em andamento para este matchId, marcar que há novo sync pendente
+  // Se já houver um sync em andamento:
   if (queue.inFlightPromise) {
-    queue.hasPendingSync = true;
-    return queue.inFlightPromise;
+    // Se já existir uma requisição enfileirada para depois deste voo, reutilizá-la
+    if (queue.queuedDeferred) {
+      return queue.queuedDeferred.promise;
+    }
+
+    // Criar uma requisição enfileirada compartilhada por todas as chegadas concorrentes
+    let resolveDeferred!: (snapshot: GameSnapshot<TState>) => void;
+    let rejectDeferred!: (error: unknown) => void;
+
+    const promise = new Promise<GameSnapshot<TState>>((resolve, reject) => {
+      resolveDeferred = resolve;
+      rejectDeferred = reject;
+    });
+
+    queue.queuedDeferred = {
+      promise,
+      resolve: resolveDeferred,
+      reject: rejectDeferred,
+    };
+
+    return promise;
   }
 
-  // Executar sincronização com o PostgreSQL
-  const executeSync = async (): Promise<GameSnapshot<TState>> => {
+  // Função interna que executa o ciclo de busca e drena a fila
+  const runSyncCycle = async (): Promise<GameSnapshot<TState>> => {
     try {
       const snapshot = await getMatchSnapshot<TState>(matchId);
       queue.latestSnapshot = snapshot;
@@ -61,20 +99,29 @@ export async function syncMatch<TState = unknown>(
     } finally {
       queue.inFlightPromise = null;
 
-      // Se novos eventos chegaram enquanto o sync estava em voo, executar mais um ciclo
-      if (queue.hasPendingSync) {
-        queue.hasPendingSync = false;
-        queue.inFlightPromise = executeSync();
+      // Se houver uma requisição enfileirada que chegou enquanto este sync estava em voo:
+      if (queue.queuedDeferred) {
+        const nextDeferred = queue.queuedDeferred;
+        queue.queuedDeferred = null;
+
+        // Inicia o próximo ciclo imediatamente e conecta a Promise do deferred
+        const nextPromise = runSyncCycle();
+        queue.inFlightPromise = nextPromise;
+
+        nextPromise
+          .then((snap) => nextDeferred.resolve(snap))
+          .catch((err) => nextDeferred.reject(err));
       }
     }
   };
 
-  queue.inFlightPromise = executeSync();
-  return queue.inFlightPromise;
+  const currentPromise = runSyncCycle();
+  queue.inFlightPromise = currentPromise;
+  return currentPromise;
 }
 
 /**
- * Executa a rotina de reconexão de rede após perda de conectividade física ou do socket.
+ * Executa a rotina de reconexão de rede após oscilação ou reconexão física.
  * Dispara sincronização com o PostgreSQL para obter o estado oficial mais recente.
  */
 export async function reconnectMatch<TState = unknown>(
@@ -87,11 +134,12 @@ export async function reconnectMatch<TState = unknown>(
 /**
  * Assina atualizações de uma partida via Supabase Realtime (Channel: `match:{matchId}`).
  * 
- * REGRA ARQUITETURAL FUNDAMENTAL (Fase 6):
- * O evento Realtime recebido NÃO é a fonte da verdade. Ele atua exclusivamente como
- * notificação de que houve alteração persistida em `public.matches`.
- * Ao receber a notificação, dispara `syncMatch(matchId)` para consultar o PostgreSQL
- * e notificar o listener com o snapshot oficial e íntegro.
+ * GARANTIAS DE HARDENING (Fase 6.1):
+ * 1. Realtime NÃO é fonte de dados — atua unicamente como gatilho de notificação.
+ * 2. Ao receber notificação, dispara `syncMatch` que coalescerá chamadas e consultará o PostgreSQL.
+ * 3. Flag de ciclo de vida (`isSubscribed`) impede que callbacks tardios de requisições em voo
+ *    chamem o listener após `unsubscribe()`.
+ * 4. Limpeza completa de recursos e canais do Supabase Realtime.
  */
 export function subscribeToMatch<TState = unknown>(
   matchId: string,
@@ -102,10 +150,10 @@ export function subscribeToMatch<TState = unknown>(
     return () => {};
   }
 
+  let isSubscribed = true;
   const channelName = `match:${matchId}`;
 
   try {
-    // Criar canal específico para a partida no Supabase Realtime
     const channel: RealtimeChannel = supabase
       .channel(channelName)
       .on(
@@ -116,43 +164,59 @@ export function subscribeToMatch<TState = unknown>(
           table: 'matches',
           filter: `id=eq.${matchId}`,
         },
-        async (_payload) => {
-          // REGRA DE OURO: Não aplicar o payload diretamente no estado do jogo.
-          // O evento Realtime é apenas um gatilho ("algo mudou no banco").
+        async () => {
+          if (!isSubscribed) return;
+
           try {
             const authoritativeSnapshot = await syncMatch<TState>(matchId);
-            listener(authoritativeSnapshot);
+            if (isSubscribed) {
+              listener(authoritativeSnapshot);
+            }
           } catch {
-            // Em caso de falha de rede transitória no sync, o GameSessionController gerencia o estado de erro
+            // Em caso de falha transitória de rede, o controller gerencia o estado de erro
           }
         }
       )
       .subscribe((status) => {
+        if (!isSubscribed) return;
         onStatusChange?.(status);
 
-        // Quando o canal for subscrito com sucesso, realizar um sync inicial para garantir alinhamento
+        // Ao conectar com sucesso, busca o snapshot atual para garantir integridade inicial
         if (status === 'SUBSCRIBED') {
           syncMatch<TState>(matchId)
-            .then((snapshot) => listener(snapshot))
+            .then((snapshot) => {
+              if (isSubscribed) {
+                listener(snapshot);
+              }
+            })
             .catch(() => {});
         }
       });
 
-    // Função de cancelamento e limpeza total (unsubscribe)
+    // Função de desinscrição e limpeza idempotente
     const unsubscribe = () => {
+      if (!isSubscribed) return;
+      isSubscribed = false;
+
       try {
         supabase.removeChannel(channel);
       } catch {
         // Ignora erros caso o canal já tenha sido descartado
       }
-      syncQueues.delete(matchId);
     };
 
     return unsubscribe;
   } catch {
-    // Fallback gracioso para ambientes de teste sem WebSocket
+    // Fallback gracioso para ambientes isolados de teste
     return () => {
-      syncQueues.delete(matchId);
+      isSubscribed = false;
     };
   }
+}
+
+/**
+ * Função utilitária para testes: limpa o estado das filas de sincronização.
+ */
+export function clearSyncQueuesForTest(): void {
+  syncQueues.clear();
 }

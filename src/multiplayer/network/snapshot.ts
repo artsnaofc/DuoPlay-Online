@@ -1,12 +1,25 @@
 // ============================================================================
 // Network Engine: Snapshot Retrieval & Mapping — DuoPlay-Online
-// Phase: Fase 5 — Game Snapshot + Network/Sync Engine
+// Phase: Fase 6.1 — Hardening do Supabase Realtime
 // ============================================================================
 
 import { supabase } from '@/lib/supabase';
 import type { GameSnapshot, MatchPlayerSnapshot } from './types';
 import { normalizeNetworkError } from './errors';
 import type { MatchPlayerRow, MatchRow } from '@/types/database';
+
+export type SnapshotFetcher = <TState = unknown>(
+  matchId: string
+) => Promise<GameSnapshot<TState>>;
+
+let customSnapshotFetcher: SnapshotFetcher | null = null;
+
+/**
+ * Permite configurar um provedor customizado de snapshots para suítes de testes unitários isoladas.
+ */
+export function setSnapshotFetcherForTest(fetcher: SnapshotFetcher | null): void {
+  customSnapshotFetcher = fetcher;
+}
 
 /**
  * Calcula uma versão monotônica estrita a partir de dados oficiais do PostgreSQL.
@@ -84,6 +97,10 @@ export function mapDatabaseToGameSnapshot<TState = unknown>(
 export async function getMatchSnapshot<TState = unknown>(
   matchId: string
 ): Promise<GameSnapshot<TState>> {
+  if (customSnapshotFetcher) {
+    return customSnapshotFetcher<TState>(matchId);
+  }
+
   if (!matchId || typeof matchId !== 'string') {
     throw normalizeNetworkError({
       code: 'INVALID_MATCH_ID',
@@ -139,7 +156,9 @@ export async function getMatchSnapshot<TState = unknown>(
       });
     }
 
-    return mapDatabaseToGameSnapshot<TState>(data as unknown as MatchRow & { match_players: MatchPlayerRow[] });
+    return mapDatabaseToGameSnapshot<TState>(
+      data as unknown as MatchRow & { match_players: MatchPlayerRow[] }
+    );
   } catch (err) {
     throw normalizeNetworkError(err);
   }

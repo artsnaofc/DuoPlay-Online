@@ -1,6 +1,6 @@
 // ============================================================================
 // Game Session Controller — DuoPlay-Online
-// Phase: Fase 5 — Game Snapshot + Network/Sync Engine
+// Phase: Fase 6.1 — Hardening do Supabase Realtime
 // ============================================================================
 
 import type {
@@ -22,6 +22,11 @@ export type SessionChangeListener<TState = unknown> = (
  * Controlador de Sessão de Partida.
  * Orquestra o ciclo de vida do snapshot, estado de sincronização e submissão de ações.
  * Agnóstico às regras de qualquer jogo específico.
+ * 
+ * GARANTIAS DE HARDENING (Fase 6.1):
+ * - Idempotência em init() múltiplo (impede subscriptions duplicadas para a mesma sessão).
+ * - Proteção contra callbacks tardios após destroy().
+ * - Limpeza total de recursos, listeners e canais de rede.
  */
 export class GameSessionController<TState = unknown> {
   private matchId: string;
@@ -31,6 +36,8 @@ export class GameSessionController<TState = unknown> {
   private listeners: Set<SessionChangeListener<TState>> = new Set();
   private unsubscribeNetwork: (() => void) | null = null;
   private isDestroyed = false;
+  private isInitialized = false;
+  private initPromise: Promise<GameSnapshot<TState> | null> | null = null;
 
   constructor(matchId: string) {
     this.matchId = matchId;
@@ -58,9 +65,22 @@ export class GameSessionController<TState = unknown> {
   }
 
   /**
+   * Verifica se a sessão foi destruída.
+   */
+  getIsDestroyed(): boolean {
+    return this.isDestroyed;
+  }
+
+  /**
    * Inicializa a sessão carregando o snapshot oficial do PostgreSQL.
+   * Idempotente: chamadas concorrentes ou repetidas retornam a inicialização em andamento
+   * sem criar subscriptions duplicadas.
    */
   async init(): Promise<GameSnapshot<TState> | null> {
+    if (this.isDestroyed) {
+      return null;
+    }
+
     if (!this.matchId) {
       this.updateState(null, 'error', {
         code: 'INVALID_MATCH_ID',
@@ -70,7 +90,17 @@ export class GameSessionController<TState = unknown> {
       return null;
     }
 
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    // Se já estiver inicializado, retorna o snapshot atual
+    if (this.isInitialized && this.snapshot) {
+      return this.snapshot;
+    }
+
+    // Se já houver uma inicialização em voo, reutiliza a Promise para evitar duplicação
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.onLine === false) {
       this.updateState(this.snapshot, 'offline', {
         code: 'OFFLINE',
         message: 'Dispositivo sem conexão com a internet.',
@@ -81,29 +111,43 @@ export class GameSessionController<TState = unknown> {
 
     this.updateState(this.snapshot, 'syncing', null);
 
-    try {
-      const initialSnapshot = await networkEngine.getSnapshot<TState>(this.matchId);
-      if (this.isDestroyed) return null;
+    const executeInit = async (): Promise<GameSnapshot<TState> | null> => {
+      try {
+        const initialSnapshot = await networkEngine.getSnapshot<TState>(this.matchId);
+        if (this.isDestroyed) return null;
 
-      this.updateState(initialSnapshot, 'synced', null);
-
-      // Registrar contrato de assinatura
-      this.unsubscribeNetwork = networkEngine.subscribe<TState>(
-        this.matchId,
-        (updatedSnapshot) => {
-          if (!this.isDestroyed) {
-            this.updateState(updatedSnapshot, 'synced', null);
-          }
+        // Limpar subscription anterior caso tenha existido
+        if (this.unsubscribeNetwork) {
+          this.unsubscribeNetwork();
+          this.unsubscribeNetwork = null;
         }
-      );
 
-      return initialSnapshot;
-    } catch (err) {
-      if (this.isDestroyed) return null;
-      const errorObj = err as NetworkError;
-      this.updateState(null, 'error', errorObj);
-      return null;
-    }
+        this.updateState(initialSnapshot, 'synced', null);
+
+        // Registrar subscription única para a partida
+        this.unsubscribeNetwork = networkEngine.subscribe<TState>(
+          this.matchId,
+          (updatedSnapshot) => {
+            if (!this.isDestroyed) {
+              this.updateState(updatedSnapshot, 'synced', null);
+            }
+          }
+        );
+
+        this.isInitialized = true;
+        return initialSnapshot;
+      } catch (err) {
+        if (this.isDestroyed) return null;
+        const errorObj = err as NetworkError;
+        this.updateState(null, 'error', errorObj);
+        return null;
+      } finally {
+        this.initPromise = null;
+      }
+    };
+
+    this.initPromise = executeInit();
+    return this.initPromise;
   }
 
   /**
@@ -140,6 +184,10 @@ export class GameSessionController<TState = unknown> {
     };
 
     const result = await networkEngine.submitAction<TState, TPayload>(input);
+
+    if (this.isDestroyed) {
+      return result;
+    }
 
     if (result.accepted && result.snapshot) {
       this.updateState(result.snapshot, 'synced', null);
@@ -187,6 +235,10 @@ export class GameSessionController<TState = unknown> {
    * Inscreve um ouvinte para alterações no estado da sessão.
    */
   subscribe(listener: SessionChangeListener<TState>): () => void {
+    if (this.isDestroyed) {
+      return () => {};
+    }
+
     this.listeners.add(listener);
     // Notifica o estado corrente imediatamente
     listener(this.snapshot, this.syncState, this.error);
@@ -197,14 +249,23 @@ export class GameSessionController<TState = unknown> {
   }
 
   /**
-   * Encerra a sessão e libera recursos.
+   * Encerra a sessão e libera todos os recursos.
+   * Cancela subscriptions e impede que qualquer callback futuro modifique o estado.
    */
   destroy(): void {
     this.isDestroyed = true;
+    this.isInitialized = false;
+    this.initPromise = null;
+
     if (this.unsubscribeNetwork) {
-      this.unsubscribeNetwork();
+      try {
+        this.unsubscribeNetwork();
+      } catch {
+        // Ignora erros no descarte
+      }
       this.unsubscribeNetwork = null;
     }
+
     this.listeners.clear();
   }
 
@@ -213,6 +274,10 @@ export class GameSessionController<TState = unknown> {
     syncState: SyncState,
     error: NetworkError | null
   ): void {
+    if (this.isDestroyed) {
+      return;
+    }
+
     this.snapshot = snapshot;
     this.syncState = syncState;
     this.error = error;
