@@ -220,12 +220,13 @@ export interface ApiResponse<T = unknown> {
 
 ### 4.6. `submit_game_action`
 - **Finalidade**: Submete uma jogada de forma atômica e segura.
-- **Arquitetura de Despacho**: A RPC atua como orquestrador genérico. Ela:
+- **Arquitetura de Despacho e Integridade de Estado**: A RPC atua como orquestrador genérico. Ela:
   1. Identifica a partida e bloqueia com `SELECT ... FOR UPDATE`.
   2. Valida se o chamador pertence à composição congelada de `match_players` e se é o seu turno (`current_turn_player_id = auth.uid()`).
   3. Despacha para `dispatch_game_action`, que realiza a **rotação determinística de turnos** em ordem de slots ascendente com wrap-around circular (`1 -> 2 -> ... -> N -> 1`), compatível com 1, 2 ou 3+ jogadores.
-  4. Registra o envelope oficial em `action_history` com `server_timestamp = now()`.
-  5. Atualiza o turno e redefine `turn_deadline = now() + INTERVAL '30 seconds'`.
+  4. **Não-contaminação de `game_state`**: O `matches.game_state` oficial **NÃO** é derivado do payload arbitrário do cliente. O payload é armazenado exclusivamente no envelope de auditoria/evento em `action_history`, e a mutação do `game_state` oficial é prerrogativa do validador server-side de regras do jogo (Fase 6).
+  5. Registra o envelope oficial em `action_history` com `server_timestamp = now()`.
+  6. Atualiza o turno e redefine `turn_deadline = now() + INTERVAL '30 seconds'`.
 - **Parâmetros**:
   ```typescript
   {
@@ -244,9 +245,12 @@ export interface ApiResponse<T = unknown> {
 ### 4.7. `finish_match`
 - **Finalidade**: Encerra uma partida por desistência voluntária ou estouro de prazo do servidor.
 - **Parâmetros**: `p_match_id: string`, `p_reason: 'resignation' | 'timeout' | 'abandonment' | 'normal'`, `p_winner_id?: string`, `p_is_draw?: boolean`.
+- **Autorização Antes da Idempotência (Privacidade Estrita)**:
+  - O PostgreSQL valida a identidade do usuário (`auth.uid()`) e seu pertencimento obrigatório em `match_players` **ANTES** de verificar se a partida já está finalizada ou expor qualquer dado.
+  - Usuários que não participam da partida não conseguem obter informações privadas (vencedor, empates, motivos, timestamps) via chamadas repetidas à RPC.
 - **Blindagem contra Manipulação de Resultados pelo Cliente**:
-  - `normal`: **Rejeitado** para chamadas diretas de clientes na Fase 3 (`NORMAL_FINISH_NOT_AVAILABLE`). A conclusão normal é prerrogativa do validador server-side das regras do jogo (Fase 6).
-  - `abandonment`: **Rejeitado** para chamadas de clientes na Fase 3 (`ABANDONMENT_NOT_AVAILABLE`). Será habilitado na fase correspondente à implementação do Grace Period.
+  - `normal`: **Rejeitado** para chamadas diretas de clientes na Fase 3.1 (`NORMAL_FINISH_NOT_AVAILABLE`). A conclusão normal é prerrogativa do validador server-side das regras do jogo (Fase 6).
+  - `abandonment`: **Rejeitado** para chamadas de clientes na Fase 3.1 (`ABANDONMENT_NOT_AVAILABLE`). Será habilitado na fase correspondente à implementação do Grace Period.
   - `resignation`: O chamador desiste. Em partidas de 2 jogadores, o servidor consagra automaticamente o oponente como vencedor (`winner_id`). Em partidas de 3+ jogadores, rejeita resolução de vencedor único não definida (`MULTI_PLAYER_RESIGNATION_POLICY_PENDING`).
   - `timeout`: O PostgreSQL valida obrigatoriamente `clock_timestamp() >= matches.turn_deadline`. O relógio do cliente é completamente desconsiderado. Em 2 jogadores, o oponente de quem estourou o turno pontua.
   - `p_winner_id` e `p_is_draw` enviados pelo cliente são rigorosamente desconsiderados/não confiados.
