@@ -1,7 +1,7 @@
 # Diretrizes de Segurança e Proteção — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
-> **Status:** Proposed / Pending Implementation
+> **Status:** Active / Hardening Applied (Phases 2 & 3)
 
 Este documento estabelece as diretrizes de segurança, controle de acesso através de Row Level Security (RLS), requisitos estritos para funções `SECURITY DEFINER`, mitigação de concorrência e integridade contra manipulações indevidas.
 

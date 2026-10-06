@@ -1,7 +1,7 @@
 # Contrato de Backend — DuoPlay-Online
 
 > **Architecture Version:** 1.0  
-> **Status:** Proposed / Pending Implementation
+> **Status:** Active / RPCs Implemented (Phase 3)
 
 ---
 
