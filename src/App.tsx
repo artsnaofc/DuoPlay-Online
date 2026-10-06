@@ -1,21 +1,41 @@
 // ============================================================================
 // Application Entry: DuoPlay-Online App
-// Phase: Fase 7 — Integração End-to-End do Jogo da Velha
+// Phase: Fase 7.1.1 — Integração Real de Presence, Recovery e Abandono
+// Description: Orquestração do ciclo de vida da aplicação com recuperação
+//              automática de partidas ativas no startup e gerenciamento de modais.
 // ============================================================================
 
-import React, { useState, useEffect } from 'react';
-import { AuthProvider } from '@/contexts/AuthContext';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { OfflineIndicator } from '@/components/OfflineIndicator';
 import { HomePage } from '@/pages/HomePage';
 import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
 import { RoomLobbyModal } from '@/components/lobby/RoomLobbyModal';
+import { ActiveMatchRecoveryModal } from '@/components/match/ActiveMatchRecoveryModal';
+import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
+import {
+  getActiveMatchForCurrentUser,
+  abandonMatch,
+  type ActiveMatchInfo,
+} from '@/services/matchSession';
 
-export default function App() {
+function MainApp() {
+  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [isLobbyOpen, setIsLobbyOpen] = useState(false);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
+
+  // Recovery & Abandonment State
+  const [recoveryMatchInfo, setRecoveryMatchInfo] = useState<ActiveMatchInfo | null>(null);
+  const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
+  const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
+  const [isAbandonConfirmOpen, setIsAbandonConfirmOpen] = useState(false);
+  const [isAbandoning, setIsAbandoning] = useState(false);
+
+  const hasCheckedRecoveryRef = useRef(false);
 
   // Lê parâmetros de URL na inicialização (?match=UUID ou ?room=CODE)
   useEffect(() => {
@@ -33,8 +53,47 @@ export default function App() {
     }
   }, []);
 
+  // Checagem de partida ativa no startup / login
+  const checkActiveMatchOnStartup = useCallback(async () => {
+    if (isAuthLoading || !isAuthenticated || !user) return;
+
+    // Se já estiver em partida via URL ou estado, não abre modal de recuperação
+    if (activeMatchId) return;
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('match')) return;
+    }
+
+    try {
+      const res = await getActiveMatchForCurrentUser();
+      if (res.success && res.data) {
+        // Verifica se a partida não foi recém-abandonada nesta aba
+        let isDismissed = false;
+        if (typeof window !== 'undefined') {
+          isDismissed = Boolean(sessionStorage.getItem(`abandoned_match_${res.data.match_id}`));
+        }
+
+        if (!isDismissed) {
+          setRecoveryMatchInfo(res.data);
+          setIsRecoveryModalOpen(true);
+        }
+      }
+    } catch {
+      // Erro temporário de rede não interrompe o app
+    }
+  }, [isAuthLoading, isAuthenticated, user, activeMatchId]);
+
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated && user && !hasCheckedRecoveryRef.current) {
+      hasCheckedRecoveryRef.current = true;
+      checkActiveMatchOnStartup();
+    }
+  }, [isAuthLoading, isAuthenticated, user, checkActiveMatchOnStartup]);
+
   const handleStartMatch = (matchId: string) => {
     setIsLobbyOpen(false);
+    setIsRecoveryModalOpen(false);
+    setRecoveryMatchInfo(null);
     setActiveMatchId(matchId);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -53,48 +112,104 @@ export default function App() {
     }
   };
 
+  const handleResumeRecovery = (matchId: string) => {
+    handleStartMatch(matchId);
+  };
+
+  const handleRequestAbandonFromRecovery = () => {
+    setIsAbandonConfirmOpen(true);
+  };
+
+  const handleConfirmAbandonFromRecovery = async () => {
+    if (!recoveryMatchInfo || isAbandoning) return;
+    setIsAbandoning(true);
+
+    try {
+      const matchId = recoveryMatchInfo.match_id;
+      const res = await abandonMatch(matchId);
+      if (res.success) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem(`abandoned_match_${matchId}`, 'true');
+        }
+        setIsAbandonConfirmOpen(false);
+        setIsRecoveryModalOpen(false);
+        setRecoveryMatchInfo(null);
+      } else {
+        // Falha no abandono
+        setIsAbandonConfirmOpen(false);
+      }
+    } catch {
+      setIsAbandonConfirmOpen(false);
+    } finally {
+      setIsAbandoning(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-blue-600 selection:text-white">
+      {/* Platform Header */}
+      <Header />
+
+      {/* Main Content Area */}
+      <main className="grow">
+        {activeMatchId ? (
+          <TicTacToeGame
+            matchId={activeMatchId}
+            onLeave={handleLeaveMatch}
+            onPlayAgain={() => {
+              handleLeaveMatch();
+              setIsLobbyOpen(true);
+            }}
+          />
+        ) : (
+          <HomePage
+            onPlayGame={() => setIsLobbyOpen(true)}
+            onOpenLobby={() => setIsLobbyOpen(true)}
+          />
+        )}
+      </main>
+
+      {/* Platform Footer */}
+      <Footer />
+
+      {/* PWA Offline Connectivity Indicator */}
+      <OfflineIndicator />
+
+      {/* Modal de Salas & Lobby para Multiplayer */}
+      <RoomLobbyModal
+        isOpen={isLobbyOpen}
+        initialCode={initialRoomCode}
+        onClose={() => {
+          setIsLobbyOpen(false);
+          setInitialRoomCode(null);
+        }}
+        onMatchStarted={handleStartMatch}
+      />
+
+      {/* Modal de Recuperação de Partida Ativa */}
+      <ActiveMatchRecoveryModal
+        isOpen={isRecoveryModalOpen && !activeMatchId}
+        matchInfo={recoveryMatchInfo}
+        isLoading={isRecoveryLoading}
+        onResume={handleResumeRecovery}
+        onRequestAbandon={handleRequestAbandonFromRecovery}
+      />
+
+      {/* Modal de Confirmação de Abandono (Origem: Recovery) */}
+      <AbandonMatchModal
+        isOpen={isAbandonConfirmOpen}
+        isLoading={isAbandoning}
+        onCancel={() => setIsAbandonConfirmOpen(false)}
+        onConfirm={handleConfirmAbandonFromRecovery}
+      />
+    </div>
+  );
+}
+
+export default function App() {
   return (
     <AuthProvider>
-      <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-blue-600 selection:text-white">
-        {/* Platform Header */}
-        <Header />
-
-        {/* Main Content Area */}
-        <main className="grow">
-          {activeMatchId ? (
-            <TicTacToeGame
-              matchId={activeMatchId}
-              onLeave={handleLeaveMatch}
-              onPlayAgain={() => {
-                handleLeaveMatch();
-                setIsLobbyOpen(true);
-              }}
-            />
-          ) : (
-            <HomePage
-              onPlayGame={() => setIsLobbyOpen(true)}
-              onOpenLobby={() => setIsLobbyOpen(true)}
-            />
-          )}
-        </main>
-
-        {/* Platform Footer */}
-        <Footer />
-
-        {/* PWA Offline Connectivity Indicator */}
-        <OfflineIndicator />
-
-        {/* Modal de Salas & Lobby para Multiplayer */}
-        <RoomLobbyModal
-          isOpen={isLobbyOpen}
-          initialCode={initialRoomCode}
-          onClose={() => {
-            setIsLobbyOpen(false);
-            setInitialRoomCode(null);
-          }}
-          onMatchStarted={handleStartMatch}
-        />
-      </div>
+      <MainApp />
     </AuthProvider>
   );
 }

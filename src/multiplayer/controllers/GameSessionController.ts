@@ -11,6 +11,7 @@ import type {
 } from '../network/types';
 import type { NetworkError } from '../network/errors';
 import { networkEngine } from '../network/client';
+import { heartbeatMatch } from '@/services/matchSession';
 
 export type SessionChangeListener<TState = unknown> = (
   snapshot: GameSnapshot<TState> | null,
@@ -38,6 +39,8 @@ export class GameSessionController<TState = unknown> {
   private isDestroyed = false;
   private isInitialized = false;
   private initPromise: Promise<GameSnapshot<TState> | null> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private isHeartbeatInFlight = false;
 
   constructor(matchId: string) {
     this.matchId = matchId;
@@ -135,6 +138,9 @@ export class GameSessionController<TState = unknown> {
         );
 
         this.isInitialized = true;
+        if (initialSnapshot.status === 'in_progress') {
+          this.startHeartbeat();
+        }
         return initialSnapshot;
       } catch (err) {
         if (this.isDestroyed) return null;
@@ -228,7 +234,126 @@ export class GameSessionController<TState = unknown> {
    */
   async reconnect(): Promise<GameSnapshot<TState> | null> {
     if (this.isDestroyed || !this.matchId) return null;
-    return this.refresh();
+    const refreshed = await this.refresh();
+    if (refreshed && refreshed.status === 'in_progress') {
+      this.startHeartbeat();
+    }
+    return refreshed;
+  }
+
+  /**
+   * Dispara um tick único de heartbeat para o PostgreSQL.
+   * Atualiza a presença do jogador e reflete alterações nos listeners.
+   */
+  async triggerHeartbeatTick(): Promise<void> {
+    if (this.isDestroyed || !this.matchId || this.isHeartbeatInFlight) return;
+    if (this.snapshot && this.snapshot.status !== 'in_progress') {
+      this.stopHeartbeat();
+      return;
+    }
+
+    this.isHeartbeatInFlight = true;
+    try {
+      const res = await heartbeatMatch(this.matchId);
+      if (this.isDestroyed) return;
+
+      if (res.success && res.data) {
+        if (res.data.is_finished || res.data.status !== 'in_progress') {
+          this.stopHeartbeat();
+          await this.refresh();
+          return;
+        }
+
+        if (Array.isArray(res.data.players) && this.snapshot) {
+          let hasPresenceChange = false;
+          const updatedPlayers = this.snapshot.players.map((currentP) => {
+            const serverP = res.data!.players!.find((sp) => sp.user_id === currentP.userId);
+            if (!serverP) return currentP;
+            if (
+              currentP.connectionStatus !== serverP.connection_status ||
+              currentP.gracePeriodExpiresAt !== serverP.grace_period_expires_at ||
+              currentP.disconnectedAt !== serverP.disconnected_at
+            ) {
+              hasPresenceChange = true;
+              return {
+                ...currentP,
+                connectionStatus: serverP.connection_status,
+                lastSeenAt: serverP.last_seen_at,
+                disconnectedAt: serverP.disconnected_at,
+                gracePeriodExpiresAt: serverP.grace_period_expires_at,
+              };
+            }
+            return currentP;
+          });
+
+          if (hasPresenceChange) {
+            const updatedSnapshot: GameSnapshot<TState> = {
+              ...this.snapshot,
+              players: updatedPlayers,
+            };
+            this.updateState(updatedSnapshot, this.syncState, this.error);
+          }
+        }
+      }
+    } catch {
+      // Falhas transitórias no heartbeat não quebram a sessão
+    } finally {
+      this.isHeartbeatInFlight = false;
+    }
+  }
+
+  /**
+   * Inicia o envio periódico de heartbeat a cada 5 segundos.
+   * Idempotente: impede timers duplicados para a mesma sessão.
+   */
+  startHeartbeat(intervalMs = 5000): void {
+    if (this.isDestroyed || !this.matchId) return;
+    if (this.snapshot && this.snapshot.status !== 'in_progress') return;
+    if (this.heartbeatTimer !== null) return;
+
+    this.triggerHeartbeatTick();
+
+    const isTestEnv =
+      typeof window === 'undefined' &&
+      typeof process !== 'undefined' &&
+      (process.env.NODE_ENV === 'test' ||
+        Boolean(process.env.NODE_TEST_CONTEXT) ||
+        (Array.isArray(process.argv) && process.argv.some((arg) => arg.includes('--test'))));
+
+    if (isTestEnv) {
+      return;
+    }
+
+    this.heartbeatTimer = setInterval(() => {
+      this.triggerHeartbeatTick();
+    }, intervalMs);
+
+    // Evita travar o processo Node.js se for executado em backend/SSR
+    if (
+      this.heartbeatTimer &&
+      typeof this.heartbeatTimer === 'object' &&
+      typeof (this.heartbeatTimer as unknown as { unref?: () => void }).unref === 'function'
+    ) {
+      (this.heartbeatTimer as unknown as { unref: () => void }).unref();
+    }
+  }
+
+  /**
+   * Interrompe o envio de heartbeat e limpa o timer ativo.
+   */
+  stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.isHeartbeatInFlight = false;
+  }
+
+  /**
+   * Verifica se o heartbeat está ativo para esta sessão.
+   */
+  getIsHeartbeatActive(): boolean {
+    return this.heartbeatTimer !== null;
   }
 
   /**
@@ -256,6 +381,7 @@ export class GameSessionController<TState = unknown> {
     this.isDestroyed = true;
     this.isInitialized = false;
     this.initPromise = null;
+    this.stopHeartbeat();
 
     if (this.unsubscribeNetwork) {
       try {
@@ -281,6 +407,10 @@ export class GameSessionController<TState = unknown> {
     this.snapshot = snapshot;
     this.syncState = syncState;
     this.error = error;
+
+    if (snapshot && snapshot.status !== 'in_progress') {
+      this.stopHeartbeat();
+    }
 
     this.listeners.forEach((listener) => {
       listener(this.snapshot, this.syncState, this.error);

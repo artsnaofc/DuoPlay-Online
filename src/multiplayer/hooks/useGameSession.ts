@@ -67,24 +67,32 @@ export function useGameSession<TState = unknown>(
 
     controller.init();
 
-    // Eventos de conectividade do navegador para recuperação automática
+    // Eventos de conectividade e visibilidade do navegador para recuperação automática
     const handleOnline = () => {
       controller.reconnect();
     };
 
     const handleOffline = () => {
-      controller.submitAction; // no-op reference
+      // Offline detectado no cliente
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        controller.reconnect();
+      }
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('online', handleOnline);
       window.addEventListener('offline', handleOffline);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('online', handleOnline);
         window.removeEventListener('offline', handleOffline);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
       unsubscribe();
       controller.destroy();

@@ -5,7 +5,7 @@
 //              PostgreSQL é a autoridade absoluta; sem otimismo no tabuleiro.
 // ============================================================================
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Trophy,
   RotateCcw,
@@ -18,11 +18,14 @@ import {
   Sparkles,
   HelpCircle,
   ShieldAlert,
+  Flag,
 } from 'lucide-react';
 import { useGameSession } from '@/multiplayer/hooks/useGameSession';
 import { useAuth } from '@/hooks/useAuth';
 import type { TicTacToeState, TicTacToeBoard as BoardArray } from './types';
 import { TicTacToeBoard } from './TicTacToeBoard';
+import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
+import { abandonMatch, claimAbandonment } from '@/services/matchSession';
 
 interface TicTacToeGameProps {
   matchId: string;
@@ -70,6 +73,12 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   const [submittingPosition, setSubmittingPosition] = useState<number | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
+  // Presence & Grace Period do Adversário
+  const [graceSecondsLeft, setGraceSecondsLeft] = useState<number | null>(null);
+  const [isClaimingWO, setIsClaimingWO] = useState(false);
+  const [isAbandonModalOpen, setIsAbandonModalOpen] = useState(false);
+  const [isAbandoning, setIsAbandoning] = useState(false);
+
   // 1. Determinação de Símbolos baseada estritamente no slot autoritativo (Slot 1 = X, Slot 2 = O)
   const mySymbol = useMemo<'X' | 'O' | null>(() => {
     if (!myPlayer) return null;
@@ -94,6 +103,27 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   const isWinner = isFinished && snapshot?.winnerId === currentUserId;
   const isLoser = isFinished && snapshot?.winnerId !== null && snapshot?.winnerId !== currentUserId;
   const isDraw = isFinished && Boolean(snapshot?.isDraw);
+
+  const isOpponentDisconnected = opponentPlayer?.connectionStatus === 'disconnected';
+
+  // Cronômetro do Grace Period
+  useEffect(() => {
+    if (!isOpponentDisconnected || !opponentPlayer?.gracePeriodExpiresAt || isFinished) {
+      setGraceSecondsLeft(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const expiresAt = new Date(opponentPlayer.gracePeriodExpiresAt!).getTime();
+      const now = Date.now();
+      const diffSec = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+      setGraceSecondsLeft(diffSec);
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [isOpponentDisconnected, opponentPlayer?.gracePeriodExpiresAt, isFinished]);
 
   // 3. Linha Vencedora para Destaque Visual
   const winningLine = useMemo(() => {
@@ -150,7 +180,50 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     [isMyTurn, isFinished, board, submittingPosition, submitAction]
   );
 
-  // 6. Skeleton de Carregamento Inicial
+  // 6. Reivindicação de Vitória por Abandono (Grace Period Expirado no Servidor)
+  const handleClaimAbandonment = async () => {
+    if (isClaimingWO || isFinished) return;
+    setIsClaimingWO(true);
+    setFeedbackError(null);
+    try {
+      const res = await claimAbandonment(matchId);
+      if (res.success) {
+        await reconnect();
+      } else {
+        setFeedbackError(res.error || 'Não foi possível reivindicar vitória por abandono no momento.');
+      }
+    } catch {
+      setFeedbackError('Erro ao comunicar com o servidor.');
+    } finally {
+      setIsClaimingWO(false);
+    }
+  };
+
+  // 7. Abandono Voluntário da Partida (Ação Irreversível)
+  const handleConfirmAbandon = async () => {
+    if (isAbandoning || isFinished) return;
+    setIsAbandoning(true);
+    try {
+      const res = await abandonMatch(matchId);
+      if (res.success) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem(`abandoned_match_${matchId}`, 'true');
+        }
+        setIsAbandonModalOpen(false);
+        onLeave();
+      } else {
+        setFeedbackError(res.error || 'Não foi possível abandonar a partida. Você continua nela.');
+        setIsAbandonModalOpen(false);
+      }
+    } catch {
+      setFeedbackError('Erro ao processar abandono da partida. Você continua nela.');
+      setIsAbandonModalOpen(false);
+    } finally {
+      setIsAbandoning(false);
+    }
+  };
+
+  // 8. Skeleton de Carregamento Inicial
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 space-y-4">
@@ -169,13 +242,26 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     <div className="max-w-xl mx-auto px-4 py-6 sm:py-10 space-y-6">
       {/* Top Header & Status Bar */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-        <button
-          onClick={onLeave}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Sair</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onLeave}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Sair</span>
+          </button>
+
+          {!isFinished && (
+            <button
+              type="button"
+              onClick={() => setIsAbandonModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-900/60 text-xs font-semibold text-red-300 transition-colors focus-visible:outline-2 focus-visible:outline-red-400"
+            >
+              <Flag className="w-3.5 h-3.5 text-red-400" />
+              <span>Abandonar</span>
+            </button>
+          )}
+        </div>
 
         {/* Sync / Connectivity status */}
         <div className="flex items-center gap-2 text-xs">
@@ -236,8 +322,12 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           <div className="text-sm sm:text-base font-extrabold text-white truncate">
             {user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Jogador'}
           </div>
-          <div className="mt-1 text-[11px] text-slate-400">
-            Slot {myPlayer?.slot || 1}
+          <div className="mt-1 flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">Slot {myPlayer?.slot || 1}</span>
+            <span className="inline-flex items-center gap-1 text-emerald-400 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span>Online</span>
+            </span>
           </div>
         </div>
 
@@ -266,11 +356,70 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           <div className="text-sm sm:text-base font-extrabold text-white truncate">
             {opponentPlayer ? `Oponente (Slot ${opponentPlayer.slot})` : 'Aguardando jogador...'}
           </div>
-          <div className="mt-1 text-[11px] text-slate-400">
-            Slot {opponentPlayer?.slot || 2}
+          <div className="mt-1 flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">Slot {opponentPlayer?.slot || 2}</span>
+            {isOpponentDisconnected ? (
+              <span className="inline-flex items-center gap-1 text-red-400 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                <span>Desconectado</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-emerald-400 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>Conectado</span>
+              </span>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Banner de Desconexão / Grace Period do Adversário */}
+      {isOpponentDisconnected && !isFinished && (
+        <div className="p-4 rounded-xl bg-red-950/70 border border-red-800 text-red-200 space-y-2.5 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold text-xs sm:text-sm text-red-300">
+              <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+              <span>Adversário desconectado</span>
+            </div>
+            {graceSecondsLeft !== null && graceSecondsLeft > 0 ? (
+              <span className="px-2.5 py-1 rounded-full bg-red-900/90 border border-red-700 text-xs font-mono font-bold text-white">
+                Tolerância: {graceSecondsLeft}s
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-full bg-amber-900/90 border border-amber-700 text-xs font-bold text-amber-200">
+                Prazo expirado
+              </span>
+            )}
+          </div>
+
+          <p className="text-xs text-red-200/90 leading-relaxed">
+            {graceSecondsLeft !== null && graceSecondsLeft > 0
+              ? 'O adversário perdeu a conexão com o servidor. Ele possui um prazo de carência para retornar antes que a vitória por W.O. possa ser concedida.'
+              : 'O prazo de tolerância (Grace Period) do adversário expirou no servidor. Você pode reivindicar a vitória oficial por abandono.'}
+          </p>
+
+          {graceSecondsLeft === 0 && (
+            <button
+              type="button"
+              onClick={handleClaimAbandonment}
+              disabled={isClaimingWO}
+              className="w-full py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
+            >
+              {isClaimingWO ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Reivindicando vitória no servidor...</span>
+                </>
+              ) : (
+                <>
+                  <Trophy className="w-4 h-4 text-amber-300" />
+                  <span>Reivindicar Vitória por Abandono (W.O.)</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Turn indicator banner */}
       {!isFinished && (
@@ -342,18 +491,20 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
 
           <div className="space-y-1">
             <h3 className="text-xl sm:text-2xl font-black text-white">
-              {isWinner && 'Você Venceu!'}
-              {isLoser && 'Fim de Jogo — Derrota'}
+              {isWinner && (snapshot?.finishReason === 'abandonment' ? 'Vitória por Abandono (W.O.)!' : snapshot?.finishReason === 'resignation' ? 'Vitória por Desistência!' : 'Você Venceu!')}
+              {isLoser && (snapshot?.finishReason === 'resignation' ? 'Você Abandonou a Partida' : snapshot?.finishReason === 'abandonment' ? 'Derrota por Desconexão (W.O.)' : 'Fim de Jogo — Derrota')}
               {isDraw && 'Empate!'}
-              {status === 'abandoned' && 'Partida Abandonada'}
-              {status === 'cancelled' && 'Partida Cancelada'}
+              {!isWinner && !isLoser && !isDraw && (status === 'abandoned' ? 'Partida Abandonada' : 'Fim de Partida')}
             </h3>
             <p className="text-xs text-slate-300">
-              {isWinner && 'Parabéns! Sua estratégia garantiu a vitória nesta rodada.'}
-              {isLoser && 'O adversário completou a sequência primeiro. Tente a revanche!'}
+              {isWinner && snapshot?.finishReason === 'abandonment' && 'O adversário não retornou dentro do prazo de carência e a vitória oficial foi concedida a você.'}
+              {isWinner && snapshot?.finishReason === 'resignation' && 'O adversário desistiu da partida.'}
+              {isWinner && snapshot?.finishReason === 'normal' && 'Parabéns! Sua estratégia garantiu a vitória nesta rodada.'}
+              {isWinner && !snapshot?.finishReason && 'Parabéns! Sua estratégia garantiu a vitória nesta rodada.'}
+              {isLoser && snapshot?.finishReason === 'resignation' && 'Você confirmou a desistência da partida.'}
+              {isLoser && snapshot?.finishReason === 'abandonment' && 'O tempo de tolerância para reconexão expirou no servidor.'}
+              {isLoser && (!snapshot?.finishReason || snapshot?.finishReason === 'normal') && 'O adversário completou a sequência primeiro. Tente a revanche!'}
               {isDraw && 'Todas as 9 posições foram preenchidas sem vencedor.'}
-              {status === 'abandoned' && 'O oponente se desconectou ou abandonou a partida.'}
-              {status === 'cancelled' && 'A partida foi cancelada antes da conclusão.'}
             </p>
           </div>
 
@@ -377,6 +528,14 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal de Confirmação de Abandono */}
+      <AbandonMatchModal
+        isOpen={isAbandonModalOpen}
+        isLoading={isAbandoning}
+        onCancel={() => setIsAbandonModalOpen(false)}
+        onConfirm={handleConfirmAbandon}
+      />
     </div>
   );
 };
