@@ -1,7 +1,7 @@
 # Modelo de Banco de Dados — DuoPlay-Online
 
-> **Architecture Version:** 1.0  
-> **Status:** Active / Core Multiplayer Tables Implemented (Phases 2 & 3 / Gate 3.2 Applied)
+> **Architecture Version:** 1.1  
+> **Status:** Active / Phase 4 Implemented (Tic Tac Toe Server-Side State & Validator Active)
 
 Este documento especifica o modelo relacional da plataforma DuoPlay-Online no PostgreSQL (Supabase). Ele estabelece a integridade referencial, constraints de concorrência e a separação estrita entre a gestão social de **Salas (Rooms)** e o ciclo operacional de **Partidas (Matches)**.
 
@@ -181,3 +181,41 @@ As entidades abaixo estão documentadas conceitualmente para assegurar a compati
 - **`room_messages`**: Chat da sala (`id`, `room_id`, `sender_id`, `content`, `type`, `created_at`).
 - **`friendships`**: Vínculos de amizade (`id`, `user_id`, `friend_id`, `status`, `created_at`).
 - **`invites`**: Convites diretos de partida (`id`, `room_id`, `sender_id`, `receiver_id`, `status`, `expires_at`).
+
+---
+
+## 4. Estrutura e Serialização de Estado Server-Side (`matches.game_state`)
+
+Na Fase 4, a plataforma introduziu o primeiro validador server-side oficial para o **Jogo da Velha (`tic_tac_toe`)**. O campo `matches.game_state` adota o formato determinístico estruturado em JSONB:
+
+```json
+{
+  "board": ["X", null, null, null, "O", null, null, null, null],
+  "symbols": {
+    "a0000000-0000-0000-0000-000000000001": "X",
+    "b0000000-0000-0000-0000-000000000002": "O"
+  },
+  "winning_line": null,
+  "last_move": {
+    "position": 4,
+    "player_id": "b0000000-0000-0000-0000-000000000002",
+    "symbol": "O"
+  }
+}
+```
+
+### 4.1. Mapeamento de Casas do Tabuleiro (`board`)
+As 9 células correspondem estritamente a um array JSONB de tamanho 9 indexado de 0 a 8:
+```
+0 | 1 | 2
+──┼───┼──
+3 | 4 | 5
+──┼───┼──
+6 | 7 | 8
+```
+
+### 4.2. Atribuição de Símbolos (`symbols`)
+- **Slot 1** dos `match_players`: `'X'`
+- **Slot 2** dos `match_players`: `'O'`
+- Os símbolos são derivados exclusivamente dos slots oficiais no banco de dados e nunca informados ou alterados pelo cliente.
+

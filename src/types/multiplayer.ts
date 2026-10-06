@@ -103,6 +103,33 @@ export interface GameActionEnvelope<TPayload = unknown> {
   server_timestamp: string;
 }
 
+// ============================================================================
+// Tipos de Domínio do Jogo da Velha (tic_tac_toe) — Fase 4
+// ============================================================================
+
+export type TicTacToeCell = 'X' | 'O' | null;
+
+export type TicTacToeBoard = [
+  TicTacToeCell, TicTacToeCell, TicTacToeCell,
+  TicTacToeCell, TicTacToeCell, TicTacToeCell,
+  TicTacToeCell, TicTacToeCell, TicTacToeCell
+];
+
+export interface TicTacToeState {
+  board: TicTacToeBoard;
+  symbols: Record<UserId, 'X' | 'O'>;
+  winning_line?: [number, number, number] | null;
+  last_move?: {
+    position: number;
+    player_id: UserId;
+    symbol: 'X' | 'O';
+  } | null;
+}
+
+export interface TicTacToePlaceMarkPayload {
+  position: number;
+}
+
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data: T | null;

@@ -1,7 +1,7 @@
 # Diretrizes de Segurança e Proteção — DuoPlay-Online
 
-> **Architecture Version:** 1.0  
-> **Status:** Active / Hardening Applied (Phases 2 & 3)
+> **Architecture Version:** 1.1  
+> **Status:** Active / Phase 4 Implemented (Server-Side Rules Engine & Tic Tac Toe Validator Hardened)
 
 Este documento estabelece as diretrizes de segurança, controle de acesso através de Row Level Security (RLS), requisitos estritos para funções `SECURITY DEFINER`, mitigação de concorrência e integridade contra manipulações indevidas.
 
@@ -153,20 +153,23 @@ A Fase 3 estabelece o PostgreSQL como autoridade absoluta sobre salas, membros e
 
 ---
 
-## 8. Gate de Ações e Validação Server-Side (Fase 3.2)
+## 9. Autoridade Server-Side do Validador do Jogo da Velha (Fase 4)
 
-A Fase 3.2 conclui o isolamento da infraestrutura de ações através da migration `20261006030000_gate_game_actions_until_validator.sql`:
+Na Fase 4, a plataforma implementou o primeiro validador server-side (`validate_tic_tac_toe_action`) para garantir a integridade absoluta das regras de jogo:
 
-1. **Gate Obrigatório de Validador Server-Side**:
-   - Nenhuma ação enviada pelo cliente é tratada como jogada oficial enquanto não for processada e aprovada (`accepted = true`) por um validador server-side do respectivo `game_id`.
-   - Na ausência de um validador registrado para o jogo, `dispatch_game_action` lança a exceção `GAME_VALIDATOR_NOT_AVAILABLE` (`'P0030'`).
-2. **Integridade e Rollback Integral**:
-   - Sob ausência de validador ou em ações rejeitadas, a transação é revertida integralmente no PostgreSQL.
-   - `game_state`, `action_history`, `turn_number`, `current_turn_player_id`, `turn_deadline`, `winner_id` e `is_draw` permanecem absolutamente inalterados.
-3. **`action_history` Estritamente Oficial**:
-   - Apenas ações validadas e aceitas pelo servidor são registradas no `action_history`. Tentativas inválidas ou payloads arbitrários não poluem o histórico de auditoria/replay.
-4. **Neutralidade de Símbolos (`game_symbol`)**:
-   - `start_match` define `game_symbol = NULL` para todos os competidores em `match_players`. A infraestrutura multiplayer é agnóstica a símbolos (`X`, `O`, etc.), delegando essa responsabilidade aos validadores dos jogos na Fase 6.
+1. **Intenção do Cliente vs Autoridade do Servidor**:
+   - O cliente envia exclusivamente a intenção `{ action_type: 'place_mark', payload: { position: 4 } }`.
+   - O cliente **NÃO** determina: símbolo (`X`/`O`), estado resultante do tabuleiro, próximo jogador, condição de vitória, empate ou encerramento de partida.
+2. **Blindagem contra Forja de Símbolos**:
+   - O servidor atribui estritamente `'X'` ao Slot 1 e `'O'` ao Slot 2 via `match_players.slot`. Qualquer tentativa de forjar símbolos no payload é descartada.
+3. **Validação Estrita de Células e Limites**:
+   - Apenas inteiros em `[0..8]` são aceitos (`regex ^[0-8]$`).
+   - Células já preenchidas disparam erro imediato `CELL_ALREADY_OCCUPIED` (`'P0032'`).
+4. **Isolamento de Jogos Sem Validador**:
+   - Jogos ainda não implementados continuam protegidos pelo gate `GAME_VALIDATOR_NOT_AVAILABLE` (`'P0030'`), impedindo que ações espúrias alterem partidas.
+5. **Atomicidade e Anti-Corrida**:
+   - Bloqueio pessimista via `FOR UPDATE` em `matches` assegura que duas jogadas simultâneas sejam serializadas: apenas a primeira compatível com a vez do jogador é processada; a segunda é rejeitada.
+
 
 
 

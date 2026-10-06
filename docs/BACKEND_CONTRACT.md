@@ -1,17 +1,18 @@
 # Contrato de Backend — DuoPlay-Online
 
-> **Architecture Version:** 1.0  
-> **Status:** Active / RPCs Implemented (Phase 3)
+> **Architecture Version:** 1.1  
+> **Status:** Active / Phase 4 Implemented (Tic Tac Toe Server-Side Validator Registered)
 
 ---
 
 ## 1. Princípios do Contrato
 
-1. **PostgreSQL como Única Fonte da Verdade**: O estado oficial do sistema reside no banco de dados.
+1. **PostgreSQL como Única Fonte da Verdade**: O estado oficial do sistema e das regras de jogo reside no banco de dados.
 2. **Sem Mutações Arbitrárias via REST**: O Frontend não executa `INSERT`, `UPDATE` ou `DELETE` diretamente nas tabelas operacionais. Todas as modificações de estado passam por **RPCs com `SECURITY DEFINER`**.
 3. **Idempotência Obrigatória**: Operações críticas devem ser resilientes a envios duplicados provocados por double-click, latência, reconexões ou retries de rede.
 4. **Isolamento de Contratos**: O Frontend consome DTOs tipados expostos na pasta `src/types/` e serviços em `src/services/`, mapeados estritamente conforme este documento.
-5. **Escopo Social Futuro**: Entidades e RPCs sociais (`friendships`, `invites`, `room_messages`) estão documentadas para garantir extensibilidade futura, mas **NÃO** fazem parte do escopo da implementação inicial.
+5. **Validação Server-Side das Regras de Jogo**: O cliente envia exclusivamente uma *intenção de jogada* (ex: `place_mark` com `position`). O cálculo do estado resultante, alternância de turnos, vitória e empate é executado deterministicamente pelo validador server-side do respectivo jogo.
+6. **Escopo Social Futuro**: Entidades e RPCs sociais (`friendships`, `invites`, `room_messages`) estão documentadas para garantir extensibilidade futura, mas **NÃO** fazem parte do escopo da implementação inicial.
 
 ---
 
@@ -220,30 +221,67 @@ export interface ApiResponse<T = unknown> {
 
 ### 4.6. `submit_game_action`
 - **Finalidade**: Submete uma jogada de forma atômica e estritamente subordinada ao validador de regras do jogo.
-- **Princípio Fundamental (Gate de Validação Server-Side)**:
-  - Uma ação **só pode produzir alteração oficial** (novo `game_state`, avanço de `turn_number`, mudança de `current_turn_player_id`, novo `turn_deadline` ou inserção em `action_history`) **após ser declarada formalmente válida** pelo validador server-side oficial do respectivo jogo.
-  - Se a partida estiver associada a um `game_id` cujo validador server-side ainda não esteja implementado ou registrado (como na Fase 3.2), a RPC é abortada via exceção com o código `GAME_VALIDATOR_NOT_AVAILABLE` (`'P0030'`).
-  - **Ausência de Validador**: Sob ausência de validador, a transação sofre rollback integral: `game_state`, `action_history`, `turn_number`, `current_turn_player_id`, `turn_deadline`, `winner_id` e `is_draw` permanecem absolutamente intactos.
-- **Arquitetura de Despacho**:
-  1. Autentica chamador (`auth.uid()`).
-  2. Identifica a partida e bloqueia com `SELECT ... FOR UPDATE`.
-  3. Valida se o chamador pertence à composição congelada de `match_players` e se é o seu turno (`current_turn_player_id = auth.uid()`).
-  4. Verifica idempotência por `action_id` contra ações já processadas no `action_history`.
-  5. Encaminha para `dispatch_game_action()`.
-  6. Valida aprovação explícita (`accepted = true`).
-  7. Persiste `game_state` validado, anexa ao `action_history` oficial (com `server_timestamp = now()`), avança o turno e redefine `turn_deadline = now() + INTERVAL '30 seconds'`.
-- **Parâmetros**:
-  ```typescript
+- **Fluxo de Execução**:
+  ```
+  Cliente (Intenção de Ação)
+         │
+         ▼
+  submit_game_action (RPC Transacional com FOR UPDATE)
+         │
+         ▼
+  dispatch_game_action (Roteador de Regras por game_id)
+         │
+         ├── 'tic_tac_toe' ──► validate_tic_tac_toe_action (Validador Server-Side Oficial)
+         │                           │
+         │                           ▼
+         │                     { accepted: true, new_state, next_player_id, winner_id, is_draw, is_finished }
+         │
+         └── outros jogos  ──► Exceção P0030: GAME_VALIDATOR_NOT_AVAILABLE
+         │
+         ▼
+  Persistência Atômica no PostgreSQL (matches, match_players, rooms, profiles)
+  ```
+- **Contrato de Ação do Jogo da Velha (`tic_tac_toe`)**:
+  - **`action_type` Obrigatório**: `'place_mark'`.
+  - **`payload` Obrigatório**:
+    ```json
+    {
+      "position": 4
+    }
+    ```
+    - `position`: Número inteiro estrito entre `0` e `8` (0-indexed).
+    - Qualquer outro campo (como `symbol`, `winner_id`, `game_state`) é rigorosamente ignorado/desconsiderado pelo servidor.
+- **Formato Oficial do Estado Server-Side (`game_state`)**:
+  ```json
   {
-    p_match_id: string;
-    p_action_id: string; // UUID de idempotência gerado pelo cliente
-    p_action_type: string;
-    p_payload: any;
-    p_client_timestamp?: number;
+    "board": ["X", null, null, null, "O", null, null, null, null],
+    "symbols": {
+      "uuid-player-slot-1": "X",
+      "uuid-player-slot-2": "O"
+    },
+    "winning_line": null,
+    "last_move": {
+      "position": 4,
+      "player_id": "uuid-player-slot-2",
+      "symbol": "O"
+    }
   }
   ```
-- **Retorno**: `ApiResponse<{ match_id: string, turn_number: number, game_state: any, winner_id: string | null, is_draw: boolean, status: MatchStatus }>`
-- **Idempotência**: Se `p_action_id` já constar no histórico da partida, a RPC retorna o estado corrente com flag `idempotent: true` sem reaplicar a ação.
+- **Regras de Validação Server-Side**:
+  1. `UNAUTHORIZED`: `auth.uid()` deve ser não nulo.
+  2. `NOT_MATCH_PLAYER`: Chamador deve pertencer à composição congelada de `match_players`.
+  3. `NOT_YOUR_TURN`: `matches.current_turn_player_id` deve coincidir com `auth.uid()`.
+  4. `INVALID_ACTION_TYPE`: `action_type` deve ser `'place_mark'`.
+  5. `INVALID_POSITION`: `position` deve ser inteiro em `[0..8]`.
+  6. `CELL_ALREADY_OCCUPIED`: `board[position]` deve ser `null`.
+  7. **Atribuição Oficial de Símbolo**: Slot 1 = `'X'`, Slot 2 = `'O'`.
+  8. **Detecção de Vitória**: Verifica as 8 combinações (3 horizontais, 3 verticais, 2 diagonais). Em caso de vitória, define `winner_id = auth.uid()`, `is_finished = true`, `is_draw = false`.
+  9. **Detecção de Empate**: Se as 9 posições estiverem preenchidas sem vencedor, define `winner_id = null`, `is_finished = true`, `is_draw = true`.
+  10. **Alternância de Turno**: Se a partida continuar, `current_turn_player_id` é alternado para o oponente e `turn_deadline` é estendido para `now() + 30 seconds`.
+- **Comportamento para Jogos Sem Validador**:
+  - Para `game_id` diferente de `'tic_tac_toe'` (ex: `snake`, `pong`, `trio_arena`), o despachador lança exceção com código `GAME_VALIDATOR_NOT_AVAILABLE` (`'P0030'`). A transação é abortada e o estado permanece intacto.
+- **Idempotência por `action_id`**:
+  - Se `p_action_id` já constar no histórico da partida, a RPC retorna o estado corrente com `idempotent: true` sem reaplicar a ação nem avançar o turno.
 
 ---
 
