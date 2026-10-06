@@ -1,12 +1,21 @@
-# Contrato de Backend (BACKEND_CONTRACT.md)
+# Contrato de Backend — DuoPlay Online
 
-Este documento define o contrato estrito entre o Frontend e o Supabase. 
-
-> **Regra Fundamental**: O Frontend NUNCA deve acessar diretamente as tabelas do Supabase com comandos de escrita (`insert`, `update`, `delete`) arbitrários. Todas as mutações de estado crítico (salas, jogadores, jogadas, resultados) DEVEM ser efetuadas via **PostgreSQL Remote Procedure Calls (RPCs)** atômicas e protegidas por validações de segurança.
+> **Architecture Version:** 1.0  
+> **Status:** Proposed / Pending Implementation
 
 ---
 
-## 1. Tipos de Domínio TypeScript (Espelho dos Dados)
+## 1. Princípios do Contrato
+
+1. **PostgreSQL como Única Fonte da Verdade**: O estado oficial do sistema reside no banco de dados.
+2. **Sem Mutações Arbitrárias via REST**: O Frontend não executa `INSERT`, `UPDATE` ou `DELETE` diretamente nas tabelas operacionais. Todas as modificações de estado passam por **RPCs com `SECURITY DEFINER`**.
+3. **Idempotência Obrigatória**: Operações críticas devem ser resilientes a envios duplicados provocados por double-click, latência, reconexões ou retries de rede.
+4. **Isolamento de Contratos**: O Frontend consome DTOs tipados expostos na pasta `src/types/` e serviços em `src/services/`, mapeados estritamente conforme este documento.
+5. **Escopo Social Futuro**: Entidades e RPCs sociais (`friendships`, `invites`, `room_messages`) estão documentadas para garantir extensibilidade futura, mas **NÃO** fazem parte do escopo da implementação inicial.
+
+---
+
+## 2. Tipos de Domínio TypeScript (DTOs)
 
 ```typescript
 // Identificadores fortificados
@@ -72,16 +81,16 @@ export interface RoomMemberDTO {
   profile?: UserProfileDTO;
 }
 
-// Partida
+// Partida (Estado mutável por operações autorizadas, composição de jogadores congelada)
 export interface MatchDTO<TGameState = unknown> {
   id: MatchId;
   room_id: RoomId | null;
   game_id: GameId;
   status: MatchStatus;
   current_turn_player_id: UserId | null;
-  turn_deadline: string | null;
+  turn_deadline: string | null;           // Prazo normal da jogada
   turn_number: number;
-  game_state: TGameState;
+  game_state: TGameState;                 // Estado dinâmico serializado
   action_history: GameActionEnvelope[];
   winner_id: UserId | null;
   is_draw: boolean;
@@ -90,23 +99,23 @@ export interface MatchDTO<TGameState = unknown> {
   finished_at: string | null;
 }
 
-// Jogador da Partida
+// Jogador da Partida (Composição Congelada)
 export interface MatchPlayerDTO {
   id: string;
   match_id: MatchId;
   user_id: UserId;
   slot: number; // 1 ou 2
-  game_symbol: string | null; // 'X' ou 'O'
+  game_symbol: string | null; // Ex: 'X' ou 'O' para Jogo da Velha
   score: number;
   is_winner: boolean;
   disconnected_at: string | null;
-  grace_period_expires_at: string | null;
+  grace_period_expires_at: string | null; // Prazo máximo de retorno do jogador
   profile?: UserProfileDTO;
 }
 
-// Envelope genérico de ação do jogo
+// Envelope genérico de ação do jogo (Agnóstico à regra)
 export interface GameActionEnvelope<TPayload = unknown> {
-  action_id: string;
+  action_id: string;                      // UUID idempotente gerado pelo cliente
   turn_number: number;
   player_id: UserId;
   action_type: string;
@@ -114,34 +123,23 @@ export interface GameActionEnvelope<TPayload = unknown> {
   client_timestamp: number;
   server_timestamp: string;
 }
+
+// Resposta Padrão de RPC
+export interface ApiResponse<T = unknown> {
+  success: boolean;
+  data: T | null;
+  error: {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+  } | null;
+}
 ```
 
 ---
 
-## 2. Códigos de Erro Padronizados
+## 3. Códigos de Erro Padronizados
 
-Todas as RPCs retornam uma resposta no formato:
-```json
-{
-  "success": true,
-  "data": { ... },
-  "error": null
-}
-```
-Ou em caso de falha:
-```json
-{
-  "success": false,
-  "data": null,
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Mensagem amigável legível",
-    "details": {}
-  }
-}
-```
-
-### Lista Canônica de Códigos de Erro:
 - `UNAUTHORIZED`: Usuário não está autenticado (`auth.uid() IS NULL`).
 - `ROOM_NOT_FOUND`: A sala solicitada não existe ou foi fechada.
 - `ROOM_FULL`: A sala atingiu a capacidade máxima de membros.
@@ -149,167 +147,101 @@ Ou em caso de falha:
 - `NOT_IN_ROOM`: O jogador não faz parte da sala especificada.
 - `NOT_ROOM_HOST`: Operação reservada exclusivamente ao anfitrião da sala.
 - `PLAYERS_NOT_READY`: Nem todos os jogadores confirmaram prontidão.
-- `INSUFFICIENT_PLAYERS`: Quantidade de jogadores inferior ao mínimo exigido pelo jogo.
+- `INSUFFICIENT_PLAYERS`: Quantidade de jogadores inferior ao mínimo exigido.
 - `MATCH_NOT_FOUND`: A partida solicitada não foi encontrada.
 - `MATCH_ALREADY_FINISHED`: Ação enviada para uma partida já terminada.
 - `NOT_YOUR_TURN`: Jogador tentou executar ação fora da sua vez.
-- `INVALID_MOVE`: Jogada proibida pelas regras do jogo (ex: célula ocupada).
-- `TURN_TIMEOUT_EXPIRED`: O limite de tempo da jogada foi ultrapassado.
-- `GRACE_PERIOD_ACTIVE`: Jogador oponente está em período de tolerância de reconexão.
-- `INVITE_NOT_FOUND`: Convite expirado ou inválido.
+- `INVALID_MOVE`: Jogada proibida pelas regras do jogo (rejeitada pelo validador server-side).
+- `TURN_TIMEOUT_EXPIRED`: O limite de tempo regular da jogada foi ultrapassado.
+- `GRACE_PERIOD_ACTIVE`: Partida suspensa aguardando retorno do jogador desconectado.
+- `GRACE_PERIOD_NOT_EXPIRED`: Tentativa de vitória por W.O. antes de expirar o prazo oficial do servidor.
+- `DUPLICATE_ACTION`: Ação já processada anteriormente (idempotência garantida).
 
 ---
 
-## 3. Especificação Completa das RPCs
+## 4. Especificação das RPCs
 
-### 3.1. `create_room`
-- **Finalidade**: Cria uma nova sala/lobby e insere o criador como Host e ocupante do Slot 1.
-- **Parâmetros**:
-  ```typescript
-  {
-    p_game_id: string;
-    p_name: string;
-    p_is_private: boolean;
-    p_max_members?: number; // default: 4
-  }
-  ```
-- **Retorno**: `{ success: boolean, data: { room: RoomDTO, member: RoomMemberDTO } }`
-- **Validações**:
-  - `auth.uid()` obrigatório.
-  - `p_game_id` deve existir e estar ativo em `games`.
-  - Gera um código de sala aleatório de 6 caracteres alfanuméricos com verificação de colisão em loop transacional.
-- **Atomicidade**: Insere em `rooms` e `room_members` na mesma transação.
+### 4.1. `create_room`
+- **Finalidade**: Cria uma sala e aloca o criador como Host e ocupante do Slot 1.
+- **Parâmetros**: `p_game_id: string`, `p_name: string`, `p_is_private: boolean`, `p_max_members?: number`.
+- **Retorno**: `ApiResponse<{ room: RoomDTO, member: RoomMemberDTO }>`
+- **Idempotência & Atomicidade**: Insere `rooms` e `room_members` na mesma transação. Gera código alfanumérico único com verificação de colisão.
 
 ---
 
-### 3.2. `join_room_by_code`
-- **Finalidade**: Permite a um jogador ingressar em uma sala através de seu código de 6 caracteres.
-- **Parâmetros**:
-  ```typescript
-  {
-    p_code: string;
-    p_as_spectator?: boolean; // default: false
-  }
-  ```
-- **Retorno**: `{ success: boolean, data: { room: RoomDTO, member: RoomMemberDTO } }`
-- **Validações & Concorrência**:
-  - Executa `SELECT * FROM rooms WHERE code = UPPER(p_code) FOR UPDATE;` para bloquear alterações concorrentes.
-  - Verifica se a contagem atual de membros em `room_members` < `max_members`.
-  - Se `p_as_spectator` for falso, tenta alocar o menor slot livre (Slot 2); caso contrário, aloca como espectador (`slot_number = null, role = 'spectator'`).
-  - Se o usuário já estiver na sala, retorna os dados existentes de forma idempotente sem duplicar.
+### 4.2. `join_room_by_code`
+- **Finalidade**: Permite a entrada em salas (públicas ou privadas) através do código.
+- **Segurança Crítica**: O código **NÃO** é uma chave para fazer `SELECT` direto no banco via REST. Ele deve ser passado exclusivamente como parâmetro desta RPC.
+- **Parâmetros**: `p_code: string`, `p_as_spectator?: boolean`.
+- **Retorno**: `ApiResponse<{ room: RoomDTO, member: RoomMemberDTO }>`
+- **Idempotência**: Se o usuário já for membro da sala com o mesmo código, a RPC retorna o registro existente sem duplicar ou gerar erro.
+- **Concorrência**: Utiliza `SELECT ... FOR UPDATE` na linha da sala para garantir que o limite de membros não seja ultrapassado em requisições simultâneas.
 
 ---
 
-### 3.3. `leave_room`
+### 4.3. `leave_room`
 - **Finalidade**: Remove o usuário da sala.
-- **Parâmetros**:
-  ```typescript
-  {
-    p_room_id: string;
-  }
-  ```
-- **Retorno**: `{ success: boolean, data: { new_host_id: string | null, room_closed: boolean } }`
-- **Regras Críticas**:
-  - Se o jogador que saiu for o `host_id`:
-    - Se houver outros membros, elege automaticamente o próximo membro mais antigo como novo Host.
-    - Se a sala ficar vazia, atualiza `status = 'closed'` e remove a sala.
+- **Parâmetros**: `p_room_id: string`.
+- **Retorno**: `ApiResponse<{ new_host_id: string | null, room_closed: boolean }>`
+- **Regras**: Se o anfitrião sair, elege o membro mais antigo restante como novo Host. Se a sala ficar vazia, define status como `'closed'`.
 
 ---
 
-### 3.4. `set_member_ready`
-- **Finalidade**: Alterna o estado de prontidão (`is_ready`) do jogador no lobby.
-- **Parâmetros**:
-  ```typescript
-  {
-    p_room_id: string;
-    p_is_ready: boolean;
-  }
-  ```
-- **Retorno**: `{ success: boolean, data: { is_ready: boolean } }`
-- **Validações**:
-  - Usuário deve possuir `role = 'player'` e `slot_number IS NOT NULL`. Espectadores não alteram status de ready.
+### 4.4. `set_member_ready`
+- **Finalidade**: Alterna o estado de prontidão (`is_ready`) do jogador.
+- **Parâmetros**: `p_room_id: string`, `p_is_ready: boolean`.
+- **Retorno**: `ApiResponse<{ is_ready: boolean }>`
+- **Idempotência**: Enviar o mesmo valor consecutivamente resulta no mesmo estado sem efeitos colaterais.
 
 ---
 
-### 3.5. `start_match`
-- **Finalidade**: O anfitrião inicia a partida a partir da sala. Congela os competidores e instancia a partida.
-- **Parâmetros**:
-  ```typescript
-  {
-    p_room_id: string;
-  }
-  ```
-- **Retorno**: `{ success: boolean, data: { match: MatchDTO, players: MatchPlayerDTO[] } }`
-- **Validações & Atomicidade**:
+### 4.5. `start_match`
+- **Finalidade**: Anfitrião inicia a partida a partir da sala.
+- **Parâmetros**: `p_room_id: string`.
+- **Retorno**: `ApiResponse<{ match: MatchDTO, players: MatchPlayerDTO[] }>`
+- **Atomicidade e Congelamento**:
   - Bloqueia a sala com `FOR UPDATE`.
-  - Verifica se `auth.uid() = room.host_id`.
-  - Verifica se há exatamente 2 jogadores prontos nos slots 1 e 2.
-  - Inicializa o estado do jogo (para Jogo da Velha: tabuleiro vazio `[null, null, null, null, null, null, null, null, null]`).
-  - Sorteia ou define o Jogador 1 como 'X' e Jogador 2 como 'O'.
-  - Insere o registro em `matches` com status `'in_progress'`.
-  - Insere 2 registros imutáveis em `match_players`.
-  - Atualiza `rooms.status = 'in_game'` e `rooms.current_match_id = match.id`.
-  - Dispara evento no canal da sala notificando todos os participantes.
+  - Verifica se o chamador é o `host_id` e se ambos os competidores estão prontos.
+  - Cria o registro em `matches` com status `'in_progress'`.
+  - **Congela a composição dos participantes** inserindo os competidores em `match_players`.
+  - Atualiza `rooms.status = 'in_game'` e vincula `rooms.current_match_id`.
+  - Idempotência: Se invocada enquanto a partida já está sendo criada, rejeita chamadas concorrentes com base no bloqueio e status da sala.
 
 ---
 
-### 3.6. `submit_game_action`
-- **Finalidade**: Submete uma jogada de forma atômica no banco de dados.
+### 4.6. `submit_game_action`
+- **Finalidade**: Submete uma jogada de forma atômica e segura.
+- **Arquitetura de Despacho**: A RPC atua como orquestrador genérico. Ela:
+  1. Identifica a partida e bloqueia com `SELECT ... FOR UPDATE`.
+  2. Identifica o `game_id` associado (ex: `'tic_tac_toe'`).
+  3. Delega a validação e transição de estado para o validador específico do jogo (`validate_tic_tac_toe_action`).
+  4. Persiste o novo `game_state`, avança o turno e redefine o `turn_deadline`.
 - **Parâmetros**:
   ```typescript
   {
     p_match_id: string;
-    p_action_type: string; // Ex: 'PLACE_MARK'
-    p_payload: any;        // Ex: { cellIndex: 4 }
+    p_action_id: string; // UUID de idempotência gerado pelo cliente
+    p_action_type: string;
+    p_payload: any;
     p_client_timestamp: number;
   }
   ```
-- **Retorno**:
-  ```typescript
-  {
-    success: boolean,
-    data: {
-      match_id: string;
-      turn_number: number;
-      game_state: any;
-      winner_id: string | null;
-      is_draw: boolean;
-      status: MatchStatus;
-    }
-  }
-  ```
-- **Validações Invioláveis**:
-  - `SELECT * FROM matches WHERE id = p_match_id FOR UPDATE;`
-  - Valida se `status = 'in_progress'`.
-  - Valida se `auth.uid() = current_turn_player_id`.
-  - Valida regras do Jogo da Velha:
-    - Índice deve ser inteiro entre 0 e 8.
-    - Célula no `game_state` deve estar vazia (`null`).
-  - Atualiza a célula com o símbolo do jogador (`'X'` ou `'O'`).
-  - Verifica condição de vitória (3 em linha, coluna ou diagonal) ou empate (9 jogadas preenchidas).
-  - Se houver vencedor ou empate: atualiza `status = 'finished'`, define `winner_id` ou `is_draw = true`, incrementa estatísticas nos `profiles` dos jogadores e desliga o turno.
-  - Se a partida continuar: alterna `current_turn_player_id` para o oponente, incrementa `turn_number` e redefine `turn_deadline = now() + interval '30 seconds'`.
+- **Retorno**: `ApiResponse<{ match_id: string, turn_number: number, game_state: any, winner_id: string | null, is_draw: boolean, status: MatchStatus }>`
+- **Idempotência**: Se `p_action_id` já constar no histórico da partida ou se o `turn_number` já avançou, a RPC retorna o estado corrente sem reaplicar a ação.
 
 ---
 
-### 3.7. `finish_match` / `claim_timeout_victory`
-- **Finalidade**: Encerra formalmente uma partida por desistência (resign) ou por W.O. após estouro do grace period ou timer de jogada.
-- **Parâmetros**:
-  ```typescript
-  {
-    p_match_id: string;
-    p_reason: 'resignation' | 'timeout' | 'abandonment';
-  }
-  ```
-- **Validações**:
-  - Se `p_reason = 'timeout'`: o banco verifica com `clock_timestamp() > matches.turn_deadline` ou `clock_timestamp() > match_players.grace_period_expires_at`. Caso positivo, declara o adversário vencedor por W.O.
-  - Se `p_reason = 'resignation'`: o próprio jogador desiste voluntariamente, declarando vitória para o adversário.
+### 4.7. `finish_match` / `claim_timeout_victory`
+- **Finalidade**: Encerra uma partida por desistência voluntária ou reivindicação de vitória por estouro de prazo do servidor (Grace Period ou Turn Deadline).
+- **Parâmetros**: `p_match_id: string`, `p_reason: 'resignation' | 'timeout' | 'abandonment'`.
+- **Autoridade de Tempo**:
+  - Se `p_reason = 'timeout'`: o PostgreSQL compara a hora real do servidor (`clock_timestamp()`) com `match_players.grace_period_expires_at` ou `matches.turn_deadline`.
+  - O relógio do cliente é completamente desconsiderado. Se o prazo oficial não tiver expirado, rejeita com `GRACE_PERIOD_NOT_EXPIRED`.
+- **Estatísticas**: Atualiza `total_wins`, `total_losses` nos perfis dos competidores e encerra a partida.
 
 ---
 
-### 3.8. `send_room_invite` e `respond_room_invite`
-- **Finalidade**: Convidar amigos da lista social para a sala e aceitar/recusar convites.
-- **Parâmetros**:
-  - `send_room_invite`: `{ p_room_id: string, p_receiver_id: string }`
-  - `respond_room_invite`: `{ p_invite_id: string, p_accept: boolean }`
-- **Retorno**: `{ success: boolean, room_id?: string }`
+### 4.8. RPCs Sociais (Arquitetura Futura — Fora do Escopo Inicial)
+- `send_room_invite(p_room_id, p_receiver_id)`: Envia convite de sala para um amigo.
+- `respond_room_invite(p_invite_id, p_accept)`: Aceita ou rejeita convite.
+- Documentadas conceitualmente; não serão criadas na implementação inicial.

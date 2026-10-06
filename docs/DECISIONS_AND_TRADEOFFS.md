@@ -1,84 +1,78 @@
-# Registro de Decisões Arquiteturais e Trade-offs (DECISIONS_AND_TRADEOFFS.md)
+# Registro de Decisões Arquiteturais e Trade-offs — DuoPlay Online
 
-Este documento registra formalmente as decisões arquiteturais críticas do projeto, avaliando as alternativas consideradas, os motivos da escolha e os impactos futuros no sistema, em cumprimento estrito à **Regra Contra Decisões Ocultas**.
+> **Architecture Version:** 1.0  
+> **Status:** Proposed / Pending Implementation
 
----
-
-## Decisão 1: Modelo de Autoridade de Partida sem Servidor Persistente
-
-### Problema
-Como garantir a autoridade da partida, validação de regras e prevenção de trapaça em um ambiente serverless (Vercel) sem um servidor Node.js ou Go mantendo estado persistente em memória?
-
-### Opções
-- **Opção A (Host-Authoritative / P2P)**: O jogador que criou a sala (Host) atua como árbitro e valida as jogadas do adversário via WebRTC ou Supabase Broadcast.
-- **Opção B (Serverless Edge Function com State Machine)**: Cada jogada invoca uma Edge Function que carrega o estado, executa o reducer e salva no banco.
-- **Opção C (Database-Authoritative via PostgreSQL RPCs Transacionais - Recomendada)**: A lógica do árbitro e a validação do tabuleiro residem em uma Stored Procedure (`submit_game_action`) com transação atômica (`FOR UPDATE`) no PostgreSQL do Supabase.
-
-### Opção Recomendada: **Opção C**
-
-### Motivo
-- Na Opção A, se o Host fechar a aba ou trapacear deliberadamente no código JS cliente, a partida é corrompida.
-- Na Opção B, a Edge Function adiciona um salto de rede adicional (Cliente -> Vercel Edge -> Supabase -> Realtime), aumentando a latência em jogos por turnos.
-- Na Opção C, o PostgreSQL garante atomicidade ACID instantânea em menos de 30ms, valida a integridade com `auth.uid()` sem risco de spoofing e notifica via Supabase Realtime diretamente.
-
-### Impacto Futuro
-Jogos por turnos (Jogo da Velha, Xadrez, Cartas) utilizam a autoridade transacional no banco com segurança militar. Para futuros jogos contínuos de física de alta taxa de frames (ex: Pong), a engine poderá alternar para um modelo de lockstep determinístico ou host eleito para interpolação de física, sem mudar a camada de dados.
+Este documento registra formalmente as decisões arquiteturais definitivas do DuoPlay Online v1.0, documentando o problema avaliado, as opções consideradas, a recomendação adotada, as justificativas técnicas e os impactos futuros.
 
 ---
 
-## Decisão 2: Formato de Persistência do Tabuleiro e Estado do Jogo
+## Decisão 1: Modelo de Execução Multiplayer sem Servidor Persistente (Vercel)
 
 ### Problema
-Como armazenar o estado interno dos jogos na tabela `matches` permitindo que novos títulos com estruturas completamente diferentes (matriz 3x3 no Jogo da Velha, coordenadas X/Y em Pong, arrays de cartas em Carta Duo) sejam integrados sem necessidade de novas migrações DDL a cada jogo?
+A hospedagem no Vercel opera sob o paradigma serverless, sem possibilidade de manter servidores Node.js permanentes, daemons em segundo plano ou websockets persistentes proprietários. Como viabilizar um multiplayer resiliente com baixa latência e total segurança?
 
 ### Opções
-- **Opção A (Colunas Rígidas)**: Criar tabelas filhas específicas para cada jogo (ex: `tictactoe_boards` com colunas `c0, c1, ... c8`).
-- **Opção B (JSONB Serializado com Schema no Código - Recomendada)**: Usar uma coluna `game_state JSONB` e `action_history JSONB` na tabela genérica `matches`.
-- **Opção C (Array de Inteiros Simples)**: Usar `INTEGER[]` genérico.
+- **Opção A (Servidor Node/Express Dedicado fora da Vercel)**: Hospedar um servidor intermediário (Render, Railway, Fly.io).
+- **Opção B (P2P via WebRTC / Host-Authoritative)**: Navegadores comunicam-se entre si com o anfitrião validando jogadas.
+- **Opção C (Vercel SPA + Supabase Realtime + PostgreSQL RPCs - Adotada)**: O Vercel serve o frontend estático React + Vite. O cluster Supabase Realtime gerencia os WebSockets globais. O PostgreSQL atua como fonte da verdade e validador de regras via RPCs transacionais.
 
-### Opção Recomendada: **Opção B**
+### Decisão Definitiva: **Opção C**
 
 ### Motivo
-JSONB no PostgreSQL é indexável via GIN, oferece operadores nativos para consulta (`->>`, `@>`) e permite extrema flexibilidade estrutural para qualquer tipo de jogo, preservando histórico de jogadas em um único documento imutável.
+- A Opção A adiciona custo operacional e complexidade desnecessária para uma plataforma de jogos por turnos.
+- A Opção B permite manipulação direta pelo anfitrião e quebra se o host fechar o navegador.
+- A Opção C entrega consistência ACID garantida pelo banco, escalabilidade global imediata e custo zero de infraestrutura ociosa. O Express existente no projeto atual é herança de template e não fará parte da infraestrutura de execução.
 
 ### Impacto Futuro
-Adicionar o jogo Pong ou Cobrinha no futuro exigirá zero alterações no schema SQL de tabelas de partidas.
+Arquitetura 100% serverless, sem risco de gargalo de memória de servidor ou servidores caídos.
 
 ---
 
-## Decisão 3: Mecânica de Grace Period e Verificação de Timeout
+## Decisão 2: Desacoplamento da Network Engine e Regras de Jogos no Backend
 
 ### Problema
-Em um ambiente serverless, não existe um loop `setInterval` central do servidor rodando para contar o tempo de abandono de um jogador desconectado. Como declarar a vitória por W.O. com precisão cronológica?
+Como manter a Network Engine completamente agnóstica a regras de jogos específicos (Jogo da Velha hoje, Pong/Cobrinha no futuro) e ao mesmo tempo garantir validação estrita no servidor sem colocar lógicas de tabuleiro dentro da RPC genérica da infraestrutura?
 
 ### Opções
-- **Opção A (Cron Job periódico a cada minuto)**: Um worker checa partidas abandonadas.
-- **Opção B (Confiabilidade no Relógio do Cliente)**: O cliente oponente envia "o tempo dele acabou".
-- **Opção C (Verificação Passiva com Timestamp do Servidor na Ação de Reivindicação - Recomendada)**: O banco armazena `turn_deadline` e `grace_period_expires_at` usando `clock_timestamp()` do servidor. Se o tempo estourar, o jogador ativo ou a própria interface aciona a RPC `finish_match(reason: 'timeout')`, onde o PostgreSQL compara a hora real do servidor com o prazo gravado.
+- **Opção A (Regras Hardcoded na RPC Genérica)**: Colocar condicionais `IF game == 'tic_tac_toe' THEN ...` dentro de uma RPC central.
+- **Opção B (Ações Não Validadas no Servidor)**: Confiar nas jogadas do cliente.
+- **Opção C (Despachante Server-Side por `game_id` com Validadores Específicos - Adotada)**: A RPC de ação recebe parâmetros genéricos, consulta o `game_id` da partida e despacha a execução para a rotina de validação específica do jogo correspondente (ex: validador do Jogo da Velha).
 
-### Opção Recomendada: **Opção C**
+### Decisão Definitiva: **Opção C**
 
 ### Motivo
-Elimina a necessidade de servidores ou daemons caros de background. O cálculo é 100% à prova de adulteração do relógio do sistema operacional do jogador.
-
-### Impacto Futuro
-A mecânica de relógio suporta partidas rápidas (blitz) e controle de tempo tipo xadrez sem infraestrutura adicional.
+Mantém a infraestrutura de rede, salas e partidas intocada quando novos jogos forem introduzidos, enquanto preserva a garantia de que manipulações no cliente não conseguem forjar jogadas ilegais ou vitórias falsas.
 
 ---
 
-## Decisão 4: Presença vs Tabela de Membros (Fonte da Verdade)
+## Decisão 3: Autoridade Cronológica do Grace Period e Suspensão do Turn Deadline
 
 ### Problema
-O Supabase Presence é baseado em memória volátil de nós Phoenix/Elixir e pode sofrer quedas temporárias de heartbeat. Como evitar que uma oscilação de presença remova um jogador da sala ou da partida?
+Em redes móveis, o usuário pode perder conexão temporariamente ao bloquear a tela ou trocar de antena. Como gerenciar o retorno do jogador sem depender do relógio do cliente e sem puni-lo injustamente com o estouro do cronômetro da jogada?
 
 ### Opções
-- **Opção A (Presence como fonte de verdade)**: Se o evento `leave` do Presence for emitido, remove o jogador do banco.
-- **Opção B (PostgreSQL como fonte de verdade, Presence como indicador de estado - Recomendada)**: A permanência oficial na sala é governada por `room_members`. A Presença apenas altera uma etiqueta visual na interface (Online, Ausente, Reconectando).
+- **Opção A (Relógio do Cliente)**: O cliente envia mensagens de contagem regressiva.
+- **Opção B (Turno Continua Correndo Normal)**: Ignorar a desconexão e deixar o cronômetro do turno zerar.
+- **Opção C (Suspensão do Turn Deadline + Grace Period no Servidor - Adotada)**: Ao detectar a queda do socket, o Turn Deadline é suspenso e o servidor registra `grace_period_expires_at = clock_timestamp() + interval '45 seconds'`. Se o jogador retornar antes, o Grace Period é cancelado e o Turn Deadline é retomado com o saldo restante. Se estourar os 45 segundos do servidor, o oponente pode solicitar vitória por W.O.
 
-### Opção Recomendada: **Opção B**
+### Decisão Definitiva: **Opção C**
 
 ### Motivo
-Impede desconexões fantasmas e garante que oscilações transitórias de pacotes móveis não expulsem jogadores de suas partidas.
+Regra determinística, livre de ambiguidades ("pausar ou compensar") e imune a fraudes em que o usuário altere a hora local do celular.
 
-### Impacto Futuro
-Resiliência operacional máxima para redes móveis 3G/4G/5G instáveis.
+---
+
+## Decisão 4: Separação entre Sala (Lobby) e Partida (Match)
+
+### Problema
+Como evitar que a entrada ou saída de espectadores ou alterações no lobby durante a partida interfiram nos competidores ativos?
+
+### Opções
+- **Opção A (Partida Compartilhando a Tabela de Membros da Sala)**: A partida lê diretamente quem está na sala.
+- **Opção B (Composição Congelada em `match_players` - Adotada)**: A criação da partida via `start_match()` gera registros definitivos em `match_players` fixando os participantes. O registro em `matches` é mutável quanto ao estado do jogo (`game_state`, `turn_number`, `status`), mas a composição dos competidores é congelada.
+
+### Decisão Definitiva: **Opção B**
+
+### Motivo
+Isola completamente o ciclo de jogo do ciclo social de lobby, garantindo integridade das estatísticas e impossibilidade de substituição indevida de jogadores no meio de uma partida.

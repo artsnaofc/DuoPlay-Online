@@ -1,70 +1,95 @@
-# Diretrizes de Segurança e Proteção (SECURITY.md)
+# Diretrizes de Segurança e Proteção — DuoPlay Online
 
-Este documento descreve a estratégia de segurança, controle de acesso (RLS), mitigação de trapaça (anti-cheat) e proteção contra condições de corrida (*race conditions*).
+> **Architecture Version:** 1.0  
+> **Status:** Proposed / Pending Implementation
 
----
-
-## 1. Autenticação (Supabase Auth)
-
-A plataforma suporta dois modelos de autenticação através do Supabase Auth:
-1. **Autenticação Anônima (Guest / Convidado)**:
-   - Permite que qualquer usuário no celular ou PC comece a jogar imediatamente sem barreira de cadastro.
-   - O Supabase Auth emite um JWT válido com um `sub` (UUID) estável armazenado no `localStorage`.
-   - Se o usuário decidir registrar email ou vincular conta Google futuramente, o Supabase Auth promove o usuário anônimo preservando seu `id` e histórico.
-2. **Autenticação Permanente (Email / Magic Link / OAuth)**:
-   - Preserva estatísticas, histórico de vitórias e lista de amigos entre dispositivos.
-
-Todas as requisições autenticadas enviam o token JWT no cabeçalho `Authorization: Bearer <token>`, permitindo ao PostgreSQL inspecionar `auth.uid()`.
+Este documento estabelece as diretrizes de segurança, controle de acesso através de Row Level Security (RLS), requisitos estritos para funções `SECURITY DEFINER`, mitigação de concorrência e integridade contra manipulações indevidas.
 
 ---
 
-## 2. Princípio de Menor Privilégio e Row Level Security (RLS)
+## 1. Princípios de Proteção e Anti-Cheat
 
-O Row Level Security do PostgreSQL é ativado em 100% das tabelas. Como regra geral de segurança:
-- **Tabelas são estritamente READ-ONLY via API REST padrão**: O cliente só pode fazer consultas (`SELECT`) com base nas regras de RLS.
-- **Toda modificação (`INSERT`, `UPDATE`, `DELETE`) é proibida via REST**: Os clientes não têm permissão de escrita direta nas tabelas `rooms`, `room_members`, `matches` ou `match_players`. Toda alteração de estado passa exclusivamente pelas **RPCs com `SECURITY DEFINER`**.
+> **Declaração Técnica de Segurança**:  
+> A manipulação do cliente não pode alterar diretamente o estado oficial da partida.
 
-### Matriz Conceitual de Políticas RLS:
+A integridade do jogo é garantida pelo modelo de validação no servidor:
+```
+Cliente no Navegador
+       │
+       ▼ (Solicita ação com parâmetros)
+PostgreSQL RPC (SECURITY DEFINER)
+       │
+       ▼ (Valida identidade, turno, regras do jogo e concorrência)
+Estado Oficial Atualizado no Banco de Dados
+```
 
-| Tabela | Permissão de SELECT | Permissão de INSERT / UPDATE / DELETE |
-| :--- | :--- | :--- |
-| `profiles` | Qualquer usuário autenticado pode ver perfis públicos. | Usuário só pode atualizar seu próprio `display_name` e `avatar_url`. Estatísticas (`wins`, `losses`) só são atualizadas por RPCs internas do banco. |
-| `games` | Público para leitura (`is_active = true`). | Somente administradores (ou migrations). |
-| `rooms` | Qualquer usuário pode ver salas públicas (`is_private = false`). Salas privadas só são visíveis se o usuário for membro ou tiver o código exato. | Somente via RPCs (`create_room`, `leave_room`). |
-| `room_members`| Membros da mesma sala podem ver os demais membros. | Somente via RPCs (`join_room_by_code`, `leave_room`, `set_member_ready`). |
-| `matches` | Participantes da partida (`match_players`) e espectadores da sala vinculada. | Somente via RPCs (`start_match`, `submit_game_action`, `finish_match`). |
-| `match_players`| Visível para participantes e espectadores autorizados da sala. | Somente via RPC (`start_match`). |
-| `room_messages`| Apenas membros da sala vinculada (`EXISTS (SELECT 1 FROM room_members WHERE room_id = room_messages.room_id AND user_id = auth.uid())`). | Usuário autenticado membro da sala pode inserir mensagem com `sender_id = auth.uid()`. |
-| `friendships` | Usuário pode ver suas próprias relações (`user_id = auth.uid() OR friend_id = auth.uid()`). | Somente via RPCs ou inserção controlada com validação de remetente. |
-| `invites` | Destinatário (`receiver_id = auth.uid()`) e remetente (`sender_id = auth.uid()`). | Somente via RPCs (`send_room_invite`, `respond_room_invite`). |
-
----
-
-## 3. Prevenção Contra Manipulação de Cliente (Anti-Cheat)
-
-Em jogos cliente-servidor web, o cliente JavaScript no navegador nunca é confiável:
-1. **Forjamento de Jogada Fora da Vez**:
-   - O banco de dados valida se `matches.current_turn_player_id == auth.uid()`. Se não for a vez do remetente, a transação aborta imediatamente com erro `NOT_YOUR_TURN`.
-2. **Sobreposição de Jogadas**:
-   - No Jogo da Velha, a RPC valida se a posição do array do tabuleiro (`game_state->'board'->p_index`) está estritamente nula. Jogar sobre célula ocupada aborta com `INVALID_MOVE`.
-3. **Forjamento de Vitória**:
-   - O cliente NÃO envia "eu ganhei". O cliente envia apenas as coordenadas da jogada (`{ cellIndex: 4 }`).
-   - É a função interna do PostgreSQL que avalia as 8 combinações de vitória do Jogo da Velha após aplicar a jogada. O cliente não tem nenhum poder de decisão sobre quem venceu.
-4. **Adulteração de Estatísticas**:
-   - Os campos `total_wins`, `total_draws` e `total_losses` da tabela `profiles` são atualizados internamente pela RPC `submit_game_action` ou `finish_match`. Não existe endpoint que permita a um cliente alterar seus pontos manualmente.
+Essa arquitetura elimina a possibilidade de o jogador alterar o estado oficial diretamente por meio de manipulações no console JavaScript, ferramentas de desenvolvedor ou modificações de memória local.  
+*(Nota técnica: Este modelo protege a integridade do estado e das regras da partida; não possui a pretensão de impedir automações externas, bots que leiam a tela ou conluio entre usuários fora da plataforma).*
 
 ---
 
-## 4. Prevenção Contra Condições de Corrida (*Race Conditions*)
+## 2. Requisitos Mandatórios para Funções `SECURITY DEFINER`
 
-Concorrência e cliques simultâneos podem causar anomalias críticas (ex: dois jogadores ocupando o mesmo slot da sala, ou duas jogadas na mesma casa no mesmo milissegundo).
+Como as RPCs transacionais operam com privilégios elevados para atualizar tabelas protegidas, toda função com `SECURITY DEFINER` no PostgreSQL do Supabase deve seguir rigorosamente as seguintes diretrizes:
 
-### Mecanismos de Proteção Implementados:
+1. **Definição Explícita de `search_path`**:
+   - Toda função deve incluir obrigatoriamente:
+     ```sql
+     SET search_path = public, pg_temp;
+     ```
+   - Isso impede ataques de sequestro de caminho de busca (*search path hijacking*).
+2. **Identidade Estrita via `auth.uid()`**:
+   - A função **NUNCA** deve confiar em parâmetros de `user_id` enviados pelo cliente quando a identidade puder ser obtida diretamente da sessão autenticada.
+   - Qualquer operação verifica internamente se `auth.uid()` é válido e não nulo.
+3. **Validação de Pertencimento e Autorização**:
+   - Antes de modificar uma sala ou partida, a função valida se `auth.uid()` é membro legítimo daquela entidade (`room_members` ou `match_players`).
+   - Operações privativas de anfitrião (como `start_match`) validam se `auth.uid() = rooms.host_id`.
+4. **Restrição de Execução**:
+   - O privilégio público padrão de execução deve ser revogado e concedido explicitamente apenas aos usuários autenticados:
+     ```sql
+     REVOKE ALL ON FUNCTION public.submit_game_action FROM PUBLIC;
+     GRANT EXECUTE ON FUNCTION public.submit_game_action TO authenticated;
+     ```
+5. **Sanitização e Validação de Parâmetros**:
+   - Todos os dados recebidos nos argumentos devem passar por validação de tipo, limites de tamanho e verificação de sanidade antes de qualquer processamento.
+
+---
+
+## 3. Segurança de Salas Privadas
+
+A política de segurança para salas privadas elimina o risco de vazamento de informações:
+
+- **Sem Consulta Direta por Código via RLS**:  
+  O código alfanumérico da sala **NÃO** é utilizado como critério de permissão para fazer `SELECT` direto na tabela `rooms` via API REST.
+- **Acesso Exclusivo via RPC**:  
+  A descoberta e entrada em salas privadas ocorre exclusivamente pela RPC `join_room_by_code(p_code)`.
+- **Visibilidade na Tabela**:  
+  Um usuário só pode ler registros na tabela `rooms` se:
+  1. A sala for pública (`is_private = false`); OU
+  2. O usuário já for membro aceito daquela sala (`EXISTS (SELECT 1 FROM room_members WHERE room_id = rooms.id AND user_id = auth.uid())`).
+
+---
+
+## 4. Requisito de Idempotência em Operações Críticas
+
+Operações de rede em conexões móveis frequentemente sofrem com retransmissões automáticas (*retries*), toques duplicados na tela ou reenvio de pacotes pós-reconexão. Para evitar estados inconsistentes ou ações duplicadas, as seguintes operações devem ser estritamente idempotentes:
+
+- `join_room_by_code`: Se o usuário já for membro ativo da sala com aquele código, a RPC retorna os dados da sala sem criar novo registro nem gerar erro.
+- `set_member_ready`: Invocações repetidas com o mesmo valor booleano não alteram o estado nem disparam efeitos colaterais.
+- `start_match`: O bloqueio transacional (`FOR UPDATE`) garante que duas invocações simultâneas do Host resultem em apenas uma partida instanciada.
+- `submit_game_action`: Cada ação carrega um `p_action_id` (UUID). Se o ID já constar no histórico da partida ou se o `turn_number` já tiver avançado, a RPC descarta a repetição e retorna o snapshot atual com sucesso.
+- `finish_match`: Se a partida já estiver com status `'finished'`, chamadas subsequentes retornam o resultado consolidado sem alterar vencedores ou recalcular pontuações.
+
+---
+
+## 5. Proteção Contra Condições de Corrida (*Race Conditions*)
+
+Concorrência de cliques e latência de rede são neutralizadas no nível do banco de dados:
+
 1. **Bloqueio Pessimista (`SELECT ... FOR UPDATE`)**:
-   - Dentro da RPC `join_room_by_code`, a sala é bloqueada com `FOR UPDATE` enquanto a contagem de membros é checada e o novo membro é inserido.
-   - Dentro da RPC `submit_game_action`, o registro da partida em `matches` é bloqueado com `FOR UPDATE`. Se ambos os clientes enviarem pacotes no mesmo milissegundo, a segunda transação espera o commit da primeira e é rejeitada por não ser mais o seu turno.
-2. **Restrições de Unicidade no Banco (`UNIQUE Constraints`)**:
-   - `UNIQUE (room_id, slot_number)`: Garante fisicamente no motor do banco que dois jogadores jamais ocupem o Slot 1 ao mesmo tempo, mesmo que houvesse falha lógica.
-   - `UNIQUE (match_id, slot)`: Garante exclusividade de vagas na partida.
-3. **Códigos de Sala de Alta Entropia**:
-   - O código de 6 caracteres é gerado com alfabeto sem ambiguidades visuais (evitando `0`, `O`, `1`, `I`), fornecendo mais de 1 bilhão de combinações possíveis (`32^6 = 1.073.741.824`), impossibilitando ataques de adivinhação em força bruta.
+   - `join_room_by_code` bloqueia a linha da sala para garantir a contagem real de membros antes de alocar um slot.
+   - `submit_game_action` bloqueia a linha da partida em `matches`. Caso dois pacotes cheguem em milissegundos próximos, o segundo é enfileirado e processado somente após o commit do primeiro, sendo devidamente rejeitado caso não seja mais o turno do jogador.
+2. **Constraints Físicas de Unicidade**:
+   - `UNIQUE (room_id, slot_number)` impede fisicamente que dois jogadores ocupem o mesmo slot na sala.
+   - `UNIQUE (match_id, slot)` assegura exclusividade de assentos na partida.
+   - `UNIQUE (match_id, user_id)` impede duplicidade de um mesmo usuário na mesma partida.

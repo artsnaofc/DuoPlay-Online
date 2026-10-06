@@ -1,38 +1,75 @@
-# Arquitetura da Plataforma Multiplayer
+# Arquitetura da Plataforma Multiplayer — DuoPlay Online
 
-## 1. Visão Geral Executiva
-
-A plataforma foi projetada como um ecossistema modular para jogos casuais e competitivos multiplayer em tempo real na web. O objetivo central é fornecer uma infraestrutura de rede, salas, presença, reconexão e persistência totalmente desacoplada dos jogos que rodam sobre ela.
-
-O **Jogo da Velha** é o primeiro jogo suportado, funcionando como prova de conceito e validação do motor de rede. A arquitetura garante que novos jogos (como Pong, Cobrinha, Carta Duo, xadrez, etc.) sejam plugados futuramente sem tocar em nenhuma linha de código da camada de transporte, infraestrutura de salas ou gerenciamento de sessão.
+> **Architecture Version:** 1.0  
+> **Status:** Proposed / Pending Implementation
 
 ---
 
-## 2. Princípio Fundamental de Desacoplamento
+## 1. Visão Geral Executiva
 
-A arquitetura adota o princípio de **Inversão de Dependência** e **Separação Rígida em Três Camadas**:
+O **DuoPlay Online** é uma plataforma web multiplayer para jogos casuais e competitivos em tempo real. O foco central desta primeira etapa arquitetural é conceber uma infraestrutura resiliente, modular e desacoplada, na qual a lógica de rede, salas, presença, reconexão e persistência não dependa das regras de qualquer jogo específico.
+
+O **Jogo da Velha (Tic-Tac-Toe)** é o primeiro e único jogo em escopo para a implementação inicial, servindo como validação prática da **Network Engine**. Futuros títulos (como Pong, Cobrinha, Carta Duo) são tratados nesta documentação estritamente como exemplos de extensibilidade futura e **não serão implementados agora**.
+
+---
+
+## 2. Stack Tecnológica Oficial
+
+A stack oficial do projeto é padronizada e unificada:
+
+- **Frontend / Client**: React + Vite + TypeScript
+- **Estilização**: Tailwind CSS
+- **Suporte Mobile & Desktop**: PWA (Progressive Web App), Mobile-First e Desktop responsivo
+- **Plataforma de Deploy / Hospedagem**: Vercel (servindo assets estáticos e SPA)
+- **Backend & Dados**: Supabase (PostgreSQL, Supabase Auth, Row Level Security, RPCs, Supabase Realtime)
+
+> **Nota sobre Next.js**: O Next.js **NÃO** faz parte da stack. A arquitetura é 100% baseada em React + Vite.  
+> **Nota sobre Express**: O runtime da aplicação não depende de servidor Node.js/Express. O Express presente em dependências iniciais provém de scaffolds de desenvolvimento e **não será utilizado como servidor multiplayer**, devendo ser removido durante a implementação caso não haja necessidade utilitária.
+
+---
+
+## 3. O Vercel NÃO é Servidor Multiplayer
+
+O modelo de execução da Vercel é estritamente serverless e baseado em distribuição de borda (Edge/CDN). Portanto, a arquitetura estabelece as seguintes proibições técnicas:
+
+- **Sem servidor WebSocket próprio mantido pelo Vercel**;
+- **Sem processo Node.js ou Express persistente**;
+- **Sem estado de multiplayer ou salas mantido em memória da instância**;
+- **Sem dependência de sessões fixadas (sticky sessions) ou afinidade de processo**.
+
+### Como o Multiplayer Funciona sem Servidor Persistente:
+1. **Conexões WebSocket e Mensageria**: Gerenciadas pelo **Supabase Realtime Cluster**, que provê conexão persistente e distribuída diretamente com os navegadores dos usuários.
+2. **Fonte da Verdade e Consistência**: O **PostgreSQL do Supabase** centraliza o estado oficial de salas, partidas e perfis.
+3. **Mutações Críticas de Estado**: Executadas exclusivamente através de **PostgreSQL RPCs com transações atômicas**, impedindo fraudes e race conditions sem necessidade de um backend intermediário com estado.
+
+---
+
+## 4. Separação de Camadas e Desacoplamento da Network Engine
+
+A plataforma é estruturada em três camadas independentes:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                       CAMADA DE JOGOS                       │
 │                                                             │
-│   Jogo da Velha (Tic-Tac-Toe)  │  [Futuros Jogos: Pong, ...]│
-│   - Regras do Jogo e Validação Local                        │
-│   - Estado Específico do Jogo (ex: Board 3x3)              │
-│   - Componentes Visuais de Tabuleiro e HUD                  │
-│   - Consumo do contrato genérico: NetworkAdapter<T, A>      │
+│   Jogo da Velha (Único no escopo) │ [Exemplos Futuros: ...] │
+│   - Interface visual e componentes de tabuleiro             │
+│   - Definição do jogo (GameDefinition)                      │
+│   - Validação local e predição otimista de UI               │
+│   - Comunica-se APENAS via Network Engine                   │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    NETWORK ENGINE (SDK)                     │
 │                                                             │
-│   - ConnectionManager      (Conexão, Latência, Heartbeat)   │
+│   - Agnóstica de regras de jogos específicos                │
+│   - ConnectionManager      (Conexão, Latência, Ping)        │
 │   - PresenceEngine         (Estados de conexão efêmeros)    │
 │   - ReconnectionManager    (Grace period, Snapshot Sync)    │
 │   - RoomManager            (Lobby, Slots, Prontidão, Host)  │
 │   - MatchManager           (Ciclo de partida, Despacho)     │
-│   - SocialManager          (Convites, Amizades, Chat)       │
+│   - SocialManager          (Convites, Amigos - Futuro)      │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
@@ -40,96 +77,64 @@ A arquitetura adota o princípio de **Inversão de Dependência** e **Separaçã
 │                  CAMADA DE INFRAESTRUTURA                   │
 │                                                             │
 │   Supabase                                                  │
-│   - Supabase Auth          (Identidade e Tokens JWT)        │
-│   - PostgreSQL + RLS       (Fonte de verdade persistente)   │
+│   - Supabase Auth          (Identidade: Anônima ou Conta)   │
+│   - PostgreSQL + RLS       (Fonte da verdade persistente)   │
 │   - PostgreSQL RPCs        (Transações atômicas seguras)    │
+│   - Validadores de Jogo    (Módulos server-side por game_id)│
 │   - Supabase Realtime      (Broker de Mensagens WebSocket)  │
-│     * Presence             (Estado online de conexões)      │
-│     * Broadcast            (Mensagens efêmeras sub-100ms)   │
-│     * Postgres Changes     (Eventos de commit em tabelas)   │
+│     * Presence             (Estado online momentâneo)       │
+│     * Broadcast            (Eventos efêmeros sub-100ms)     │
+│     * Postgres Changes     (Notificação de mutações salvas) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Regras Estritas de Fronteira:
-1. **Nenhum jogo importa o Supabase Client**: O Jogo da Velha (e futuros jogos) interage exclusivamente com as interfaces TypeScript expostas pela Network Engine.
-2. **Nenhum jogo define salas ou conexões**: O jogo só entra em ação quando uma partida (`Match`) é instanciada e fornecida com dois slots preenchidos.
-3. **A Network Engine é agnóstica de regras**: A engine transporta envelopes de payload genérico `Action<T>` e `StateSnapshot<S>`, sem inspecionar ou inferir as regras internas de qualquer jogo.
+### Regras Estritas de Isolamento:
+1. **Network Engine Totalmente Agnóstica**: Ela gerencia apenas abstrações genéricas: `GameState`, `GameAction`, `GameEvent`, `Match`, `Room`, `Player`, `Connection`, `Presence`. Ela **não conhece** regras de 3x3, símbolos 'X'/'O', linhas vencedoras ou física de jogo.
+2. **Nenhum Jogo Acessa o Supabase Diretamente**: O código do Jogo da Velha nunca importa o cliente Supabase nem faz chamadas diretas a tabelas, canais ou RPCs.
 
 ---
 
-## 3. Compatibilidade com o Modelo Serverless da Vercel
-
-A aplicação hospeda seu frontend e eventuais rotas auxiliares na infraestrutura serverless da Vercel. 
-
-### Restrições Operacionais:
-- **Sem instâncias com estado em memória**: Funções serverless da Vercel têm ciclo de vida efêmero (cold start, execução e encerramento).
-- **Sem servidor WebSocket próprio em Node.js**: Não é viável manter conexões persistentes WebSocket abertas contra contêineres na Vercel.
-- **Sem processos em background**: Não há daemons permanentes para orquestrar ticks de relógio ou timeouts centrais.
-
-### Solução Arquitetural:
-- O **Supabase Realtime Cluster** (baseado em Elixir/Phoenix Channels distribuído) atua como o broker global e persistente de conexões WebSocket com os navegadores.
-- O **PostgreSQL do Supabase** atua como a única fonte da verdade persistente através de transações ACID garantidas por **RPCs com `SECURITY DEFINER`**.
-- A verificação de timeouts e grace period utiliza uma abordagem híbrida de **Timestamps Baseados no Servidor (`clock_timestamp()`)**:
-  - Quando um jogador realiza uma ação, o banco registra o momento exato do servidor.
-  - Se um jogador tentar jogar após o tempo limite, ou se o adversário solicitar encerramento por W.O., o banco valida o cálculo de tempo no Postgres, invulnerável a adulterações do relógio do cliente.
-
----
-
-## 4. Ciclo de Vida Completo da Aplicação
-
-O fluxo de dados e estados de um jogador segue a máquina de estados abaixo:
+## 5. Separação Conceitual entre Room e Match
 
 ```
-[Início]
-   │
-   ▼
-[Autenticação (Supabase Auth - Anônima ou Conta)]
-   │
-   ▼
-[Lobby Global] (Canal lobby:presence - Status: 'online')
-   │
-   ├─► [Criar Sala] ──► RPC: create_room
-   │                      │
-   └─► [Entrar na Sala] ─► RPC: join_room_by_code
-                          │
-                          ▼
-              [Sala / Lobby da Partida] (Canal room:{room_id})
-              - Presença na sala (Status: 'in_room')
-              - Troca de mensagens de chat
-              - Slot assignment (Jogador 1 vs Jogador 2, ou Espectador)
-              - Botão "Pronto" (RPC: set_member_ready)
-                          │
-                          ▼
-              [Início da Partida] (RPC: start_match)
-              - Snapshot da composição de jogadores congelado
-              - Geração de registro imutável em `matches`
-                          │
-                          ▼
-              [Partida Ativa] (Canal match:{match_id})
-              - Carregamento do componente do jogo (ex: TicTacToe)
-              - Loop de jogadas via RPC atômica (`submit_game_action`)
-              - Broadcast de feedback de baixa latência
-              - Monitoramento contínuo de Presence (Status: 'playing')
-                          │
-            ┌─────────────┴─────────────┐
-            │ Queda de Conexão?         │
-            ▼                           ▼
-      [Sim: Início Grace Period]    [Não: Fim da Partida]
-      - Timer no cliente (45s)        - Vitória / Empate
-      - Tentativa de reconexão        - RPC: finish_match
-      - Se reconectou: State Sync     - Retorno à Sala ou Revanche
-      - Se expirou: Derrota por W.O.
+USER
+ ↓
+ROOM (Lobby de Espera)
+ ↓
+ROOM MEMBER (Participantes com papéis e prontidão)
+ ↓ [start_match]
+MATCH (Partida Ativa)
+ ↓
+MATCH PLAYER (Composição Congelada)
 ```
+
+- **Room (Sala/Lobby)**:
+  - Espaço de agrupamento social dinâmico.
+  - Participantes podem entrar, sair, alternar prontidão (`is_ready`) e conversar.
+  - Gerenciada pelo anfitrião (`host_id`).
+- **Match (Partida)**:
+  - Instanciada pela RPC `start_match()`.
+  - **Composição de Jogadores Congelada**: No momento da criação, os competidores são registrados de forma fixa na tabela `match_players`.
+  - **Estado Mutável via Operações Autorizadas**: O registro da partida em `matches` é mutável durante a disputa (atualizando `status`, `game_state`, `current_turn_player_id`, `turn_number`, `score`, `winner_id`), mas **a lista de competidores é imutável**.
+  - Eventuais entradas, saídas ou alterações posteriores na sala não afetam retroativamente os participantes da partida.
 
 ---
 
-## 5. Modelo de Autoridade da Partida
+## 6. Validação Server-Side das Regras dos Jogos
 
-Em jogos multiplayer, a autoridade define quem decide a validade de uma ação. Existem três abordagens comuns:
-1. **Server-authoritative com servidor dedicado (Node/Go/C++)**: Impossível na Vercel serverless sem infraestrutura adicional de alto custo.
-2. **Peer-to-Peer / Host-authoritative puro**: O jogador 1 valida as jogadas. Problema: Se o Host trapacear ou desconectar, a partida é corrompida.
-3. **Database-authoritative via RPCs Transacionais (Abordagem Adotada)**:
-   - Toda jogada que altera o estado oficial da partida passa por uma RPC atômica no PostgreSQL.
-   - O banco valida se é o turno do jogador, se a posição é válida, se a partida não foi encerrada e se o tempo limite não expirou.
-   - O banco calcula o novo estado ou o resultado final (vitória/empate) de forma determinística e emite o evento via Supabase Realtime para todos os inscritos.
-   - **Benefício**: Trapaça impossível por manipulação do cliente, resistência total a quedas de qualquer nó, e compatibilidade nativa com Serverless.
+Para preservar a integridade sem acoplar a infraestrutura:
+- A RPC de ação do jogo (`submit_game_action`) atua como despachante (*dispatcher*): recebe o `match_id`, identifica o `game_id` associado e invoca a rotina de validação específica daquele jogo (ex: rotina de validação do Jogo da Velha).
+- A infraestrutura genérica não possui lógica condicional embutida com regras de tabuleiro no fluxo principal de rede.
+
+---
+
+## 7. Ciclo de Vida da Aplicação
+
+1. **Autenticação**: Supabase Auth (anônima ou autenticada) gera o JWT com `auth.uid()`.
+2. **Lobby Global**: Conexão com canal `lobby:presence`.
+3. **Criação / Entrada em Sala**: Via RPC `create_room` ou `join_room_by_code`.
+4. **Preparação**: Participantes marcam prontidão via `set_member_ready`.
+5. **Início da Partida**: Host invoca `start_match`. Jogadores são congelados em `match_players`.
+6. **Disputa**: Ações enviadas via RPC transacional, atualizando o `game_state` no banco e notificando os inscritos pelo Supabase Realtime.
+7. **Oscilação / Queda**: Queda do socket ativa o **Grace Period de 45s**, suspenso o Turn Deadline até reconexão ou expiração (W.O.).
+8. **Encerramento**: Resultado persistido no banco, estatísticas calculadas pelo servidor e retorno opcional à sala para revanche.

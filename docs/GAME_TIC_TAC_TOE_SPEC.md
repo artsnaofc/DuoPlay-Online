@@ -1,24 +1,29 @@
-# Especificação do Jogo da Velha na Network Engine (GAME_TIC_TAC_TOE_SPEC.md)
+# Especificação do Jogo da Velha na Network Engine — DuoPlay Online
 
-Este documento demonstra como o **Jogo da Velha** será futuramente implementado sobre a infraestrutura da Network Engine, comprovando na prática a separação de responsabilidades e o desacoplamento arquitetural.
+> **Architecture Version:** 1.0  
+> **Status:** Proposed / Pending Implementation
+
+Este documento demonstra como o **Jogo da Velha** — o único jogo em escopo na fase inicial — se integrará à **Network Engine**, evidenciando o isolamento de camadas e o desacoplamento de infraestrutura.
 
 ---
 
-## 1. Isolamento Conceitual
+## 1. Princípio de Isolamento
 
-O Jogo da Velha:
+O código do Jogo da Velha (que residirá futuramente na pasta `src/games/tic-tac-toe/`):
 - **NÃO** importa `@supabase/supabase-js`;
-- **NÃO** conhece URLs de banco ou chaves de API;
-- **NÃO** sabe o que é WebSocket, canal Phoenix ou RPC SQL;
-- **CONHECE APENAS**: o hook/adapter fornecido pela Network Engine (`useGameMatch`).
+- **NÃO** faz chamadas diretas a tabelas SQL, RPCs ou canais Realtime;
+- **NÃO** possui conhecimento sobre reconexão, sockets TCP ou Vercel;
+- **CONHECE APENAS**: A interface padronizada da Network Engine (`GameDefinition` e `useGameMatch`).
 
 ---
 
 ## 2. Modelagem dos Tipos Específicos do Jogo
 
+Estes tipos pertencem exclusivamente ao domínio do Jogo da Velha:
+
 ```typescript
-// Tipos específicos que pertencerão a `src/games/tic-tac-toe/types.ts`
 export type BoardCell = 'X' | 'O' | null;
+
 export type BoardArray = [
   BoardCell, BoardCell, BoardCell,
   BoardCell, BoardCell, BoardCell,
@@ -27,12 +32,12 @@ export type BoardArray = [
 
 export interface TicTacToeState {
   board: BoardArray;
-  winningLine: [number, number, number] | null; // índices da linha vencedora para destaque visual
+  winningLine: [number, number, number] | null;
   lastMoveIndex: number | null;
 }
 
 export interface PlaceMarkAction {
-  cellIndex: number; // 0 a 8
+  cellIndex: number; // Intervalo de 0 a 8
 }
 ```
 
@@ -40,7 +45,7 @@ export interface PlaceMarkAction {
 
 ## 3. Definição do Jogo (`GameDefinition`)
 
-O jogo registra sua lógica puramente matemática e idempotente:
+O Jogo da Velha fornece à Network Engine suas regras puramente determinísticas:
 
 ```typescript
 export const TicTacToeDefinition: GameDefinition<TicTacToeState, PlaceMarkAction> = {
@@ -52,17 +57,18 @@ export const TicTacToeDefinition: GameDefinition<TicTacToeState, PlaceMarkAction
     lastMoveIndex: null,
   },
 
-  // Validação puramente local para feedback visual imediato antes do envio
+  // Validação puramente local para feedback visual imediato antes da submissão
   validateActionLocal: (state, action, playerSlot) => {
     if (action.cellIndex < 0 || action.cellIndex > 8) return false;
     if (state.board[action.cellIndex] !== null) return false;
     return true;
   },
 
-  // Reducer determinístico local para predição otimista de UI
-  reduceStateLocal: (state, action, playerSymbol) => {
+  // Reducer local para predição otimista de UI (opcional)
+  reduceStateLocal: (state, action, playerSlot) => {
+    const symbol = playerSlot === 1 ? 'X' : 'O';
     const newBoard = [...state.board] as BoardArray;
-    newBoard[action.cellIndex] = playerSymbol as 'X' | 'O';
+    newBoard[action.cellIndex] = symbol;
     return {
       ...state,
       board: newBoard,
@@ -75,39 +81,40 @@ export const TicTacToeDefinition: GameDefinition<TicTacToeState, PlaceMarkAction
 
 ---
 
-## 4. Consumo Futuro na Camada Visual (Preview de Componente)
+## 4. Consumo Visual via React Hook (`useGameMatch`)
 
-Quando a implementação for aprovada, o componente React do jogo consumirá a engine com uma simplicidade extrema:
+O componente de tabuleiro interage unicamente com o hook agnóstico:
 
 ```typescript
-// Exemplo conceitual da arquitetura do componente em fases futuras:
-export function TicTacToeView({ matchId }: { matchId: string }) {
+export function TicTacToeGameBoard({ matchId }: { matchId: string }) {
   const {
-    gameState,
-    mySymbol,
-    isMyTurn,
-    opponent,
-    submitAction,
-    networkStatus,
-    gracePeriodSecondsLeft
+    gameState,              // Tabuleiro 3x3 sincronizado
+    mySlot,                 // 1 ou 2
+    isMyTurn,               // Se é a vez do jogador atual
+    opponent,               // Informações do oponente (nome, avatar, status)
+    submitAction,           // Função genérica de despacho de ação
+    networkStatus,          // 'connected' | 'reconnecting' | 'opponent_reconnecting'
+    gracePeriodSecondsLeft  // Contador regressivo visual durante o Grace Period
   } = useGameMatch<TicTacToeState, PlaceMarkAction>(matchId, TicTacToeDefinition);
 
-  const handleCellClick = (index: number) => {
+  const handleCellClick = async (index: number) => {
     if (!isMyTurn || gameState.board[index] !== null) return;
-    submitAction('PLACE_MARK', { cellIndex: index });
+    
+    // O jogo apenas emite a ação genérica para a engine
+    await submitAction('PLACE_MARK', { cellIndex: index });
   };
 
   return (
-    <div className="tic-tac-toe-container">
-      {/* HUD com avatar do oponente, indicador de vez e status de rede */}
-      <PlayerHUD opponent={opponent} networkStatus={networkStatus} />
-      
-      {/* Alerta caso o oponente esteja em Grace Period de reconexão */}
+    <div className="game-container">
+      {/* HUD do Oponente com indicador de conectividade */}
+      <OpponentHeader opponent={opponent} networkStatus={networkStatus} />
+
+      {/* Alerta caso o oponente esteja em período de tolerância */}
       {networkStatus === 'opponent_reconnecting' && (
-        <ReconnectionBanner secondsLeft={gracePeriodSecondsLeft} />
+        <GracePeriodWarning secondsRemaining={gracePeriodSecondsLeft} />
       )}
 
-      {/* Grid 3x3 do Tabuleiro */}
+      {/* Tabuleiro 3x3 */}
       <div className="grid grid-cols-3 gap-2">
         {gameState.board.map((cell, idx) => (
           <BoardCell
@@ -126,10 +133,10 @@ export function TicTacToeView({ matchId }: { matchId: string }) {
 
 ---
 
-## 5. Por que este Design é à Prova de Futuro?
+## 5. Extensibilidade Futura
 
-Para adicionar um segundo jogo (ex: **Pong**):
-1. Cria-se `src/games/pong/types.ts` e `PongDefinition`.
-2. Cria-se o componente visual `PongView`.
-3. Invoca-se `useGameMatch<PongState, PongAction>(matchId, PongDefinition)`.
-4. **Zero** alterações no `ConnectionManager`, `RoomManager`, `ReconnectionManager` ou tabelas de infraestrutura.
+Quando novos títulos (como Pong, Cobrinha ou Carta Duo) forem adicionados em versões futuras da plataforma:
+1. Criar-se-á a pasta do jogo em `src/games/<novo-jogo>/`;
+2. Definir-se-á a sua respectiva `GameDefinition`;
+3. Desenvolver-se-á a interface de renderização consumindo `useGameMatch`;
+4. A Network Engine, os gerenciadores de salas, as tabelas de infraestrutura e o protocolo de reconexão permanecerão **100% inalterados**.
