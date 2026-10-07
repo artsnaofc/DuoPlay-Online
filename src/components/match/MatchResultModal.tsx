@@ -18,6 +18,12 @@ import {
 } from 'lucide-react';
 import type { MatchPlayerSnapshot } from '@/multiplayer/network/types';
 
+export interface MatchResultPlayerInfo {
+  gameSymbol?: string | null;
+  slot?: number;
+  displayName?: string | null;
+}
+
 export interface MatchResultModalProps {
   isOpen: boolean;
   matchId: string;
@@ -27,8 +33,8 @@ export interface MatchResultModalProps {
   isDraw: boolean;
   finishReason: 'normal' | 'resignation' | 'abandonment' | 'timeout' | 'rules_violation' | string | null;
   currentUserId: string | null;
-  myPlayer?: MatchPlayerSnapshot | null;
-  opponentPlayer?: MatchPlayerSnapshot | null;
+  myPlayer?: MatchResultPlayerInfo | null;
+  opponentPlayer?: MatchResultPlayerInfo | null;
   onGoHome: () => void;
   onViewHistory: () => void;
 }
@@ -186,22 +192,22 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         {/* Players Summary Section */}
         <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs">
           <div className="space-y-1">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">
-              Você
+            <span className="text-[10px] uppercase font-bold text-slate-400 block truncate">
+              {myPlayer?.displayName || 'Você'}
             </span>
             <div className="font-bold text-white truncate flex items-center gap-1.5">
-              <span>{myPlayer?.gameSymbol ? `(${myPlayer.gameSymbol})` : 'Slot 1'}</span>
+              <span>{myPlayer?.gameSymbol ? `(${myPlayer.gameSymbol})` : `Slot ${myPlayer?.slot || 1}`}</span>
               {isWinner && <span className="text-emerald-400 text-[11px]">Vencedor</span>}
               {isLoser && <span className="text-slate-400 text-[11px]">Derrota</span>}
             </div>
           </div>
 
           <div className="space-y-1 text-right">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">
-              Adversário
+            <span className="text-[10px] uppercase font-bold text-slate-400 block truncate">
+              {opponentPlayer?.displayName || 'Adversário'}
             </span>
             <div className="font-bold text-white truncate flex items-center justify-end gap-1.5">
-              <span>{opponentPlayer?.gameSymbol ? `(${opponentPlayer.gameSymbol})` : 'Slot 2'}</span>
+              <span>{opponentPlayer?.gameSymbol ? `(${opponentPlayer.gameSymbol})` : `Slot ${opponentPlayer?.slot || 2}`}</span>
               {!isWinner && !isDraw && isFinished && <span className="text-emerald-400 text-[11px]">Vencedor</span>}
             </div>
           </div>

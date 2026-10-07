@@ -15,12 +15,17 @@ import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
 import { RoomLobbyModal } from '@/components/lobby/RoomLobbyModal';
 import { ActiveMatchRecoveryModal } from '@/components/match/ActiveMatchRecoveryModal';
 import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
+import { MatchResultModal } from '@/components/match/MatchResultModal';
 import { MatchHistoryModal } from '@/components/history/MatchHistoryModal';
 import {
   getActiveMatchForCurrentUser,
   abandonMatch,
   type ActiveMatchInfo,
 } from '@/services/matchSession';
+import {
+  getLatestCompletedMatchForCurrentUser,
+  type MatchHistoryItem,
+} from '@/services/matchHistory';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -36,6 +41,10 @@ function MainApp() {
   const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
   const [isAbandonConfirmOpen, setIsAbandonConfirmOpen] = useState(false);
   const [isAbandoning, setIsAbandoning] = useState(false);
+
+  // Completed Match Recovery State (Fase 8.2)
+  const [completedMatchRecovery, setCompletedMatchRecovery] = useState<MatchHistoryItem | null>(null);
+  const [isCompletedResultOpen, setIsCompletedResultOpen] = useState(false);
 
   const lastCheckedUserIdRef = useRef<string | null>(null);
 
@@ -79,6 +88,29 @@ function MainApp() {
           setRecoveryMatchInfo(res.data);
           setIsRecoveryModalOpen(true);
         }
+      } else {
+        // Fase 8.2: Se nenhuma partida ativa estiver em andamento,
+        // verifica se a partida mais recente foi finalizada enquanto o usuário estava fora.
+        const historyRes = await getLatestCompletedMatchForCurrentUser();
+        if (historyRes.success && historyRes.data) {
+          const lastMatch = historyRes.data;
+          let isSeen = false;
+          if (typeof window !== 'undefined') {
+            isSeen =
+              Boolean(localStorage.getItem(`seen_match_result_${currentUserId}_${lastMatch.match_id}`)) ||
+              Boolean(sessionStorage.getItem(`seen_match_result_${currentUserId}_${lastMatch.match_id}`)) ||
+              Boolean(sessionStorage.getItem(`seen_match_result_${lastMatch.match_id}`));
+          }
+
+          if (!isSeen && lastMatch.finished_at) {
+            const finishedTime = new Date(lastMatch.finished_at).getTime();
+            const isRecent = Date.now() - finishedTime < 24 * 60 * 60 * 1000;
+            if (isRecent) {
+              setCompletedMatchRecovery(lastMatch);
+              setIsCompletedResultOpen(true);
+            }
+          }
+        }
       }
     } catch {
       // Erro temporário de rede não interrompe o app
@@ -93,7 +125,9 @@ function MainApp() {
       // Usuário deslogou: limpa estados de recuperação do usuário anterior
       lastCheckedUserIdRef.current = null;
       setRecoveryMatchInfo(null);
+      setCompletedMatchRecovery(null);
       setIsRecoveryModalOpen(false);
+      setIsCompletedResultOpen(false);
       setIsAbandonConfirmOpen(false);
       return;
     }
@@ -102,7 +136,9 @@ function MainApp() {
     if (user.id !== lastCheckedUserIdRef.current) {
       lastCheckedUserIdRef.current = user.id;
       setRecoveryMatchInfo(null);
+      setCompletedMatchRecovery(null);
       setIsRecoveryModalOpen(false);
+      setIsCompletedResultOpen(false);
       checkActiveMatchOnStartup(user.id);
     }
   }, [isAuthLoading, isAuthenticated, user, checkActiveMatchOnStartup]);
@@ -111,6 +147,8 @@ function MainApp() {
     setIsLobbyOpen(false);
     setIsRecoveryModalOpen(false);
     setRecoveryMatchInfo(null);
+    setIsCompletedResultOpen(false);
+    setCompletedMatchRecovery(null);
     setActiveMatchId(matchId);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -121,12 +159,27 @@ function MainApp() {
   };
 
   const handleLeaveMatch = () => {
+    if (activeMatchId && typeof window !== 'undefined' && user) {
+      const seenKey = `seen_match_result_${user.id}_${activeMatchId}`;
+      localStorage.setItem(seenKey, 'true');
+      sessionStorage.setItem(seenKey, 'true');
+    }
     setActiveMatchId(null);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       url.searchParams.delete('match');
       window.history.replaceState({}, '', url.toString());
     }
+  };
+
+  const handleDismissCompletedRecovery = () => {
+    if (completedMatchRecovery && typeof window !== 'undefined' && user) {
+      const seenKey = `seen_match_result_${user.id}_${completedMatchRecovery.match_id}`;
+      localStorage.setItem(seenKey, 'true');
+      sessionStorage.setItem(seenKey, 'true');
+    }
+    setIsCompletedResultOpen(false);
+    setCompletedMatchRecovery(null);
   };
 
   const handleResumeRecovery = (matchId: string) => {
@@ -219,6 +272,42 @@ function MainApp() {
         onResume={handleResumeRecovery}
         onRequestAbandon={handleRequestAbandonFromRecovery}
       />
+
+      {/* Modal de Resultado de Partida Finalizada Recuperada no Startup (Fase 8.2) */}
+      {completedMatchRecovery && (
+        <MatchResultModal
+          isOpen={isCompletedResultOpen && !activeMatchId}
+          matchId={completedMatchRecovery.match_id}
+          gameName={completedMatchRecovery.game_name}
+          status={completedMatchRecovery.status}
+          winnerId={completedMatchRecovery.winner_id}
+          isDraw={completedMatchRecovery.is_draw}
+          finishReason={completedMatchRecovery.finish_reason}
+          currentUserId={user?.id || null}
+          myPlayer={{
+            gameSymbol: completedMatchRecovery.my_symbol,
+            slot: completedMatchRecovery.my_slot,
+            displayName: user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Você',
+          }}
+          opponentPlayer={
+            completedMatchRecovery.opponents?.[0]
+              ? {
+                  gameSymbol: completedMatchRecovery.opponents[0].game_symbol,
+                  slot: completedMatchRecovery.opponents[0].slot,
+                  displayName:
+                    completedMatchRecovery.opponents[0].display_name ||
+                    completedMatchRecovery.opponents[0].username ||
+                    'Adversário',
+                }
+              : null
+          }
+          onGoHome={handleDismissCompletedRecovery}
+          onViewHistory={() => {
+            handleDismissCompletedRecovery();
+            setIsHistoryOpen(true);
+          }}
+        />
+      )}
 
       {/* Modal de Confirmação de Abandono (Origem: Recovery) */}
       <AbandonMatchModal

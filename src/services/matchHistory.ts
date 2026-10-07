@@ -1,8 +1,8 @@
 // ============================================================================
 // Service: Match History — DuoPlay-Online
-// Phase: Fase 8.1 — Implementação do Resultado da Partida + Histórico
-// Description: Consome a RPC get_my_match_history com paginação, normalização
-//              e tratamento seguro de erros.
+// Phase: Fase 8.2 — Correção de Recovery Pós-Partida e Validação
+// Description: Consome a RPC get_my_match_history com validação defensiva,
+//              paginação, normalização de dados e recuperação de partidas finalizadas.
 // ============================================================================
 
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -55,6 +55,66 @@ export interface MatchHistoryResponse {
 }
 
 /**
+ * Normaliza e valida defensivamente um item de histórico recebido da RPC.
+ */
+function normalizeMatchItem(raw: unknown): MatchHistoryItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const item = raw as Record<string, unknown>;
+  const matchId = typeof item.match_id === 'string' ? item.match_id.trim() : '';
+  if (!matchId) return null;
+
+  const gameId = typeof item.game_id === 'string' ? item.game_id : 'tic_tac_toe';
+  const gameName = typeof item.game_name === 'string' ? item.game_name : 'Jogo da Velha';
+
+  const statusRaw = typeof item.status === 'string' ? item.status : 'finished';
+  const status: 'finished' | 'abandoned' | 'cancelled' =
+    statusRaw === 'abandoned' || statusRaw === 'cancelled' ? statusRaw : 'finished';
+
+  const outcomeRaw = typeof item.outcome === 'string' ? item.outcome : 'cancelled';
+  const outcome: MatchOutcome =
+    outcomeRaw === 'win' || outcomeRaw === 'loss' || outcomeRaw === 'draw' ? outcomeRaw : 'cancelled';
+
+  const opponents: MatchHistoryOpponent[] = [];
+  if (Array.isArray(item.opponents)) {
+    for (const opp of item.opponents) {
+      if (opp && typeof opp === 'object') {
+        const oppObj = opp as Record<string, unknown>;
+        opponents.push({
+          user_id: typeof oppObj.user_id === 'string' ? oppObj.user_id : '',
+          display_name: typeof oppObj.display_name === 'string' ? oppObj.display_name : 'Adversário',
+          username: typeof oppObj.username === 'string' ? oppObj.username : 'player',
+          slot: Number(oppObj.slot) || 2,
+          game_symbol: typeof oppObj.game_symbol === 'string' ? oppObj.game_symbol : null,
+          is_winner: Boolean(oppObj.is_winner),
+          score: Number(oppObj.score) || 0,
+        });
+      }
+    }
+  }
+
+  return {
+    match_id: matchId,
+    game_id: gameId,
+    game_name: gameName,
+    status,
+    winner_id: typeof item.winner_id === 'string' ? item.winner_id : null,
+    is_draw: Boolean(item.is_draw),
+    finish_reason: typeof item.finish_reason === 'string' ? item.finish_reason : null,
+    turn_number: Number(item.turn_number) || 0,
+    started_at: typeof item.started_at === 'string' ? item.started_at : new Date().toISOString(),
+    finished_at: typeof item.finished_at === 'string' ? item.finished_at : null,
+    duration_seconds: Number(item.duration_seconds) || 0,
+    my_slot: Number(item.my_slot) || 1,
+    my_symbol: typeof item.my_symbol === 'string' ? item.my_symbol : null,
+    my_score: Number(item.my_score) || 0,
+    is_winner: Boolean(item.is_winner),
+    outcome,
+    opponents,
+  };
+}
+
+/**
  * Consulta o histórico paginado de partidas finalizadas do usuário autenticado.
  * A autoridade e a filtragem são estritamente executadas no servidor PostgreSQL via RPC.
  *
@@ -92,10 +152,16 @@ export async function getMyMatchHistory(
     }
 
     const payload = data as {
-      success: boolean;
-      data?: MatchHistoryData;
-      error?: { message: string; code: string } | string | null;
-    };
+      success?: boolean;
+      data?: {
+        matches?: unknown[];
+        total_count?: number;
+        limit?: number;
+        offset?: number;
+        has_more?: boolean;
+      };
+      error?: { message?: string; code?: string } | string | null;
+    } | null;
 
     if (!payload || payload.success !== true || !payload.data) {
       const errorMsg =
@@ -109,11 +175,21 @@ export async function getMyMatchHistory(
       };
     }
 
+    const rawMatches = Array.isArray(payload.data.matches) ? payload.data.matches : [];
+    const normalizedMatches: MatchHistoryItem[] = [];
+
+    for (const rawItem of rawMatches) {
+      const normalized = normalizeMatchItem(rawItem);
+      if (normalized) {
+        normalizedMatches.push(normalized);
+      }
+    }
+
     return {
       success: true,
       data: {
-        matches: Array.isArray(payload.data.matches) ? payload.data.matches : [],
-        total_count: Number(payload.data.total_count) || 0,
+        matches: normalizedMatches,
+        total_count: Number(payload.data.total_count) || normalizedMatches.length,
         limit: Number(payload.data.limit) || safeLimit,
         offset: Number(payload.data.offset) || safeOffset,
         has_more: Boolean(payload.data.has_more),
@@ -127,5 +203,26 @@ export async function getMyMatchHistory(
       error: errorMsg,
       code: 'UNEXPECTED_ERROR',
     };
+  }
+}
+
+/**
+ * Consulta a partida finalizada mais recente do usuário para fins de recovery de resultado.
+ */
+export async function getLatestCompletedMatchForCurrentUser(): Promise<{
+  success: boolean;
+  data: MatchHistoryItem | null;
+  error?: string;
+}> {
+  try {
+    const res = await getMyMatchHistory(1, 0);
+    if (!res.success || !res.data) {
+      return { success: false, data: null, error: res.error };
+    }
+    const latest = res.data.matches.length > 0 ? res.data.matches[0] : null;
+    return { success: true, data: latest };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Erro ao consultar partida finalizada.';
+    return { success: false, data: null, error: errorMsg };
   }
 }
