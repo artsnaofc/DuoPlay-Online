@@ -88,27 +88,24 @@ function MainApp() {
           setRecoveryMatchInfo(res.data);
           setIsRecoveryModalOpen(true);
         }
-      } else {
-        // Fase 8.2: Se nenhuma partida ativa estiver em andamento,
-        // verifica se a partida mais recente foi finalizada enquanto o usuário estava fora.
+      } else if (res.success && res.data === null) {
+        // Fase 8.3: Consulta a partida finalizada mais recente somente quando
+        // a RPC de partida ativa confirmar com sucesso que não existe partida em andamento.
         const historyRes = await getLatestCompletedMatchForCurrentUser();
         if (historyRes.success && historyRes.data) {
           const lastMatch = historyRes.data;
           let isSeen = false;
           if (typeof window !== 'undefined') {
+            const seenKey = `seen_match_result_${currentUserId}_${lastMatch.match_id}`;
             isSeen =
-              Boolean(localStorage.getItem(`seen_match_result_${currentUserId}_${lastMatch.match_id}`)) ||
-              Boolean(sessionStorage.getItem(`seen_match_result_${currentUserId}_${lastMatch.match_id}`)) ||
-              Boolean(sessionStorage.getItem(`seen_match_result_${lastMatch.match_id}`));
+              Boolean(localStorage.getItem(seenKey)) ||
+              Boolean(sessionStorage.getItem(seenKey));
           }
 
-          if (!isSeen && lastMatch.finished_at) {
-            const finishedTime = new Date(lastMatch.finished_at).getTime();
-            const isRecent = Date.now() - finishedTime < 24 * 60 * 60 * 1000;
-            if (isRecent) {
-              setCompletedMatchRecovery(lastMatch);
-              setIsCompletedResultOpen(true);
-            }
+          // Exibe o resultado se ainda não foi marcado como visto para este usuário e partida
+          if (!isSeen) {
+            setCompletedMatchRecovery(lastMatch);
+            setIsCompletedResultOpen(true);
           }
         }
       }
@@ -159,11 +156,7 @@ function MainApp() {
   };
 
   const handleLeaveMatch = () => {
-    if (activeMatchId && typeof window !== 'undefined' && user) {
-      const seenKey = `seen_match_result_${user.id}_${activeMatchId}`;
-      localStorage.setItem(seenKey, 'true');
-      sessionStorage.setItem(seenKey, 'true');
-    }
+    // Sair da interface durante uma partida ativa não marca o resultado como visto.
     setActiveMatchId(null);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);

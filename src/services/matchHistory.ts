@@ -207,22 +207,35 @@ export async function getMyMatchHistory(
 }
 
 /**
- * Consulta a partida finalizada mais recente do usuário para fins de recovery de resultado.
+ * Consulta a partida finalizada mais recente do usuário (ordenada por finished_at DESC)
+ * utilizando a RPC já existente get_my_match_history(1, 0) para recovery de resultado pós-jogo.
  */
 export async function getLatestCompletedMatchForCurrentUser(): Promise<{
   success: boolean;
   data: MatchHistoryItem | null;
   error?: string;
+  code?: string;
 }> {
   try {
     const res = await getMyMatchHistory(1, 0);
-    if (!res.success || !res.data) {
-      return { success: false, data: null, error: res.error };
+    if (!res.success) {
+      return {
+        success: false,
+        data: null,
+        error: res.error,
+        code: res.code,
+      };
     }
-    const latest = res.data.matches.length > 0 ? res.data.matches[0] : null;
+    const latest = res.data && res.data.matches.length > 0 ? res.data.matches[0] : null;
     return { success: true, data: latest };
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : 'Erro ao consultar partida finalizada.';
-    return { success: false, data: null, error: errorMsg };
+    const errorMsg =
+      err instanceof Error ? err.message : 'Erro inesperado ao consultar partida finalizada.';
+    return {
+      success: false,
+      data: null,
+      error: errorMsg,
+      code: 'UNEXPECTED_ERROR',
+    };
   }
 }

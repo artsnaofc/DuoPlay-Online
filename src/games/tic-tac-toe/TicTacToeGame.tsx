@@ -579,8 +579,26 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
         currentUserId={currentUserId}
         myPlayer={myPlayer}
         opponentPlayer={opponentPlayer}
-        onGoHome={onLeave}
-        onViewHistory={onViewHistory || onLeave}
+        onGoHome={() => {
+          if (isFinished && currentUserId && typeof window !== 'undefined') {
+            const seenKey = `seen_match_result_${currentUserId}_${matchId}`;
+            localStorage.setItem(seenKey, 'true');
+            sessionStorage.setItem(seenKey, 'true');
+          }
+          onLeave();
+        }}
+        onViewHistory={() => {
+          if (isFinished && currentUserId && typeof window !== 'undefined') {
+            const seenKey = `seen_match_result_${currentUserId}_${matchId}`;
+            localStorage.setItem(seenKey, 'true');
+            sessionStorage.setItem(seenKey, 'true');
+          }
+          if (onViewHistory) {
+            onViewHistory();
+          } else {
+            onLeave();
+          }
+        }}
       />
 
       {/* Modal de Confirmação de Abandono */}
