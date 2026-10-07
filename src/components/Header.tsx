@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu, X, Gamepad2, Sparkles, HelpCircle, Dices, LogIn, User } from 'lucide-react';
+import { Menu, X, Gamepad2, Sparkles, HelpCircle, Dices, LogIn, History } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { UserMenu } from './auth/UserMenu';
 import { AuthModal } from './auth/AuthModal';
@@ -7,9 +7,10 @@ import { useAuth } from '@/hooks/useAuth';
 
 interface HeaderProps {
   onNavigate?: (sectionId: string) => void;
+  onOpenHistory?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
+export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -94,7 +95,7 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
               {!isLoading && (
                 <>
                   {isAuthenticated ? (
-                    <UserMenu />
+                    <UserMenu onOpenHistory={onOpenHistory} />
                   ) : (
                     <div className="flex items-center gap-2">
                       <button
@@ -120,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
               <PWAInstallButton />
 
               {isAuthenticated ? (
-                <UserMenu />
+                <UserMenu onOpenHistory={onOpenHistory} />
               ) : (
                 <button
                   onClick={handleOpenLogin}
@@ -167,6 +168,19 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate }) => {
               <HelpCircle className="w-4 h-4 text-emerald-400" />
               Como Funciona
             </button>
+
+            {isAuthenticated && onOpenHistory && (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenHistory();
+                }}
+                className="flex items-center gap-3 w-full text-left px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-900 rounded-lg"
+              >
+                <History className="w-4 h-4 text-blue-400" />
+                Histórico de Partidas
+              </button>
+            )}
 
             {!isAuthenticated && (
               <div className="pt-3 border-t border-slate-800/80 flex flex-col gap-2">

@@ -15,6 +15,7 @@ import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
 import { RoomLobbyModal } from '@/components/lobby/RoomLobbyModal';
 import { ActiveMatchRecoveryModal } from '@/components/match/ActiveMatchRecoveryModal';
 import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
+import { MatchHistoryModal } from '@/components/history/MatchHistoryModal';
 import {
   getActiveMatchForCurrentUser,
   abandonMatch,
@@ -26,6 +27,7 @@ function MainApp() {
 
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [isLobbyOpen, setIsLobbyOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
 
   // Recovery & Abandonment State
@@ -163,7 +165,7 @@ function MainApp() {
   return (
     <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-blue-600 selection:text-white">
       {/* Platform Header */}
-      <Header />
+      <Header onOpenHistory={() => setIsHistoryOpen(true)} />
 
       {/* Main Content Area */}
       <main className="grow">
@@ -171,6 +173,7 @@ function MainApp() {
           <TicTacToeGame
             matchId={activeMatchId}
             onLeave={handleLeaveMatch}
+            onViewHistory={() => setIsHistoryOpen(true)}
             onPlayAgain={() => {
               handleLeaveMatch();
               setIsLobbyOpen(true);
@@ -199,6 +202,13 @@ function MainApp() {
           setInitialRoomCode(null);
         }}
         onMatchStarted={handleStartMatch}
+      />
+
+      {/* Modal de Histórico Paginado de Partidas */}
+      <MatchHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        onPlayGame={() => setIsLobbyOpen(true)}
       />
 
       {/* Modal de Recuperação de Partida Ativa */}

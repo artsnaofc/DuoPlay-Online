@@ -25,11 +25,13 @@ import { useAuth } from '@/hooks/useAuth';
 import type { TicTacToeState, TicTacToeBoard as BoardArray } from './types';
 import { TicTacToeBoard } from './TicTacToeBoard';
 import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
+import { MatchResultModal } from '@/components/match/MatchResultModal';
 import { abandonMatch, claimAbandonment } from '@/services/matchSession';
 
 interface TicTacToeGameProps {
   matchId: string;
   onLeave: () => void;
+  onViewHistory?: () => void;
   onPlayAgain?: () => void;
 }
 
@@ -53,6 +55,7 @@ function deriveWinningLine(board: (string | null)[]): [number, number, number] |
 export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   matchId,
   onLeave,
+  onViewHistory,
   onPlayAgain,
 }) => {
   const { user } = useAuth();
@@ -72,12 +75,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
 
   const [submittingPosition, setSubmittingPosition] = useState<number | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
-
-  // Presence & Grace Period do Adversário
-  const [graceSecondsLeft, setGraceSecondsLeft] = useState<number | null>(null);
-  const [isClaimingWO, setIsClaimingWO] = useState(false);
-  const [isAbandonModalOpen, setIsAbandonModalOpen] = useState(false);
-  const [isAbandoning, setIsAbandoning] = useState(false);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(true);
 
   // 1. Determinação de Símbolos baseada estritamente no slot autoritativo (Slot 1 = X, Slot 2 = O)
   const mySymbol = useMemo<'X' | 'O' | null>(() => {
@@ -98,11 +96,24 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     return [null, null, null, null, null, null, null, null, null];
   }, [snapshot]);
 
+  // Presence & Grace Period do Adversário
+  const [graceSecondsLeft, setGraceSecondsLeft] = useState<number | null>(null);
+  const [isClaimingWO, setIsClaimingWO] = useState(false);
+  const [isAbandonModalOpen, setIsAbandonModalOpen] = useState(false);
+  const [isAbandoning, setIsAbandoning] = useState(false);
+
+  // Reabre o modal de resultado caso a partida mude para finalizada
   const status = snapshot?.status || 'in_progress';
   const isFinished = status === 'finished' || status === 'abandoned' || status === 'cancelled';
   const isWinner = isFinished && snapshot?.winnerId === currentUserId;
   const isLoser = isFinished && snapshot?.winnerId !== null && snapshot?.winnerId !== currentUserId;
   const isDraw = isFinished && Boolean(snapshot?.isDraw);
+
+  useEffect(() => {
+    if (isFinished) {
+      setIsResultModalOpen(true);
+    }
+  }, [isFinished]);
 
   const isOpponentDisconnected = opponentPlayer?.connectionStatus === 'disconnected';
 
@@ -234,6 +245,30 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           <h2 className="text-base font-bold text-white">Carregando Partida Oficial</h2>
           <p className="text-xs text-slate-400">Consultando o estado mais recente no servidor...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Fallback seguro caso a partida seja inválida ou inexistente
+  if (!snapshot && sessionError) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-12 text-center space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-red-950/60 border border-red-800/80 flex items-center justify-center text-red-400 mx-auto">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-base font-bold text-white">Partida Indisponível</h2>
+          <p className="text-xs text-slate-400">
+            {sessionError.message || 'Não foi possível carregar as informações desta partida no servidor.'}
+          </p>
+        </div>
+        <button
+          onClick={onLeave}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Voltar para Home</span>
+        </button>
       </div>
     );
   }
@@ -509,25 +544,44 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           </div>
 
           <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-            {onPlayAgain && (
-              <button
-                onClick={onPlayAgain}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-blue-900/30 transition-colors"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Jogar Novamente</span>
-              </button>
-            )}
             <button
+              type="button"
               onClick={onLeave}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs sm:text-sm font-semibold transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-blue-900/30 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Voltar ao Menu</span>
+              <span>Voltar para Home</span>
             </button>
+
+            {onViewHistory && (
+              <button
+                type="button"
+                onClick={onViewHistory}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs sm:text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-slate-400"
+              >
+                <Trophy className="w-4 h-4 text-amber-400" />
+                <span>Ver Histórico</span>
+              </button>
+            )}
           </div>
         </div>
       )}
+
+      {/* Modal Autoritativo de Resultado da Partida */}
+      <MatchResultModal
+        isOpen={isFinished && isResultModalOpen}
+        matchId={matchId}
+        gameName="Jogo da Velha"
+        status={status}
+        winnerId={snapshot?.winnerId || null}
+        isDraw={Boolean(snapshot?.isDraw)}
+        finishReason={snapshot?.finishReason || null}
+        currentUserId={currentUserId}
+        myPlayer={myPlayer}
+        opponentPlayer={opponentPlayer}
+        onGoHome={onLeave}
+        onViewHistory={onViewHistory || onLeave}
+      />
 
       {/* Modal de Confirmação de Abandono */}
       <AbandonMatchModal

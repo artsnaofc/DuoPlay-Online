@@ -1,8 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LogOut, User, Trophy, ChevronDown, Check } from 'lucide-react';
+import { LogOut, User, Trophy, ChevronDown, History } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
-export const UserMenu: React.FC = () => {
+export interface UserMenuProps {
+  onOpenHistory?: () => void;
+}
+
+export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory }) => {
   const { user, profile, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -68,6 +72,21 @@ export const UserMenu: React.FC = () => {
                 <span className="font-semibold text-slate-300 font-mono">{profile.total_matches}</span>
               </div>
             </div>
+          )}
+
+          {/* History Action */}
+          {onOpenHistory && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenHistory();
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left my-1"
+            >
+              <History className="w-3.5 h-3.5 text-blue-400" />
+              <span>Histórico de Partidas</span>
+            </button>
           )}
 
           {/* Logout Action */}
