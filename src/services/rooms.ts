@@ -70,6 +70,12 @@ export function translateRoomError(error: unknown): { message: string; code: str
   if (rawMsg.includes('P0013') || rawMsg.includes('PLAYERS_NOT_READY')) {
     return { message: 'Todos os jogadores precisam confirmar "Pronto" antes de iniciar.', code: 'PLAYERS_NOT_READY' };
   }
+  if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError') || rawMsg.includes('fetch')) {
+    return { message: 'Erro de conexão com o servidor. Verifique sua conexão.', code: 'NETWORK_ERROR' };
+  }
+  if (rawMsg.includes('invalid input syntax for type uuid') || rawMsg.includes('violates foreign key')) {
+    return { message: 'A sala solicitada não foi encontrada ou não está disponível.', code: 'ROOM_NOT_FOUND' };
+  }
 
   return { message: rawMsg || 'Erro ao processar sala.', code };
 }

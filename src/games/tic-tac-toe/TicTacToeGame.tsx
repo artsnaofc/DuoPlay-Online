@@ -29,6 +29,8 @@ import { MatchResultModal } from '@/components/match/MatchResultModal';
 import { abandonMatch, claimAbandonment } from '@/services/matchSession';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile';
+import { ConnectionStatusIndicator } from '@/components/match/ConnectionStatusIndicator';
+import { TurnTimer } from '@/components/match/TurnTimer';
 
 interface TicTacToeGameProps {
   matchId: string;
@@ -334,34 +336,11 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
         </div>
 
         {/* Sync / Connectivity status */}
-        <div className="flex items-center gap-2 text-xs">
-          {syncState === 'synced' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/80 text-emerald-400 font-medium text-[11px]">
-              <Wifi className="w-3.5 h-3.5" />
-              <span>Conectado</span>
-            </span>
-          )}
-          {syncState === 'syncing' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-950/60 border border-blue-800/80 text-blue-400 font-medium text-[11px]">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>Sincronizando...</span>
-            </span>
-          )}
-          {syncState === 'offline' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950/60 border border-amber-800/80 text-amber-400 font-medium text-[11px]">
-              <WifiOff className="w-3.5 h-3.5" />
-              <span>Offline</span>
-            </span>
-          )}
-          {syncState === 'error' && (
-            <button
-              onClick={() => reconnect()}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-950/60 border border-red-800/80 text-red-400 font-medium text-[11px] hover:bg-red-900/60 transition-colors"
-            >
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>Reconectar</span>
-            </button>
-          )}
+        <div className="flex items-center gap-2">
+          <ConnectionStatusIndicator
+            syncState={syncState}
+            onReconnect={() => reconnect()}
+          />
         </div>
       </div>
 
@@ -522,22 +501,42 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       {/* Turn indicator banner */}
       {!isFinished && (
         <div
-          className={`py-2 px-4 rounded-xl text-center text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 ${
+          className={`py-2 px-4 rounded-xl text-center text-xs sm:text-sm font-semibold flex items-center justify-between gap-3 ${
             isMyTurn
               ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 shadow-sm'
               : 'bg-slate-800/60 text-slate-300 border border-slate-700/60'
           }`}
+          role="status"
+          aria-live="polite"
         >
-          <Clock className="w-4 h-4" />
-          {isMyTurn ? (
-            <span>
-              Sua vez de jogar! Selecione uma casa livre com seu símbolo <strong>({mySymbol})</strong>.
-            </span>
-          ) : (
-            <span>
-              Aguardando jogada do adversário <strong>({currentTurnPlayer?.symbol})</strong>...
-            </span>
-          )}
+          <div className="flex items-center gap-2 truncate">
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                isMyTurn ? 'bg-blue-400 animate-pulse' : 'bg-purple-400'
+              }`}
+              aria-hidden="true"
+            />
+            {isMyTurn ? (
+              <span className="truncate">
+                Sua vez de jogar <strong>({mySymbol})</strong>
+              </span>
+            ) : isOpponentDisconnected ? (
+              <span className="truncate text-amber-300">
+                Aguardando retorno do adversário <strong>({opponentSymbol})</strong>...
+              </span>
+            ) : (
+              <span className="truncate">
+                Vez de {opponentProfile?.displayName || 'Adversário'} <strong>({opponentSymbol})</strong>
+              </span>
+            )}
+          </div>
+
+          <TurnTimer
+            turnDeadline={snapshot?.turnDeadline || null}
+            isMyTurn={isMyTurn}
+            isSuspended={isOpponentDisconnected}
+            className="shrink-0"
+          />
         </div>
       )}
 

@@ -123,6 +123,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   // 1. Ação: Criar Sala
   const handleCreateRoom = async () => {
+    if (isLoading) return;
     setIsLoading(true);
     setErrorMessage(null);
 
@@ -145,7 +146,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   // 2. Ação: Entrar na Sala com código
   const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinCode.trim()) return;
+    if (isLoading || !joinCode.trim()) return;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -167,7 +168,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   // 3. Ação: Alterar Prontidão (Ready)
   const handleToggleReady = async () => {
-    if (!currentRoom || !currentUserId) return;
+    if (isLoading || !currentRoom || !currentUserId) return;
     const myMember = currentRoom.members.find((m) => m.user_id === currentUserId);
     if (!myMember) return;
 
@@ -185,7 +186,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   // 4. Ação: Iniciar Partida (Apenas Host)
   const handleStartMatch = async () => {
-    if (!currentRoom) return;
+    if (isLoading || !currentRoom || !canStartMatch) return;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -203,6 +204,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   // 5. Ação: Sair da Sala
   const handleLeaveRoom = async () => {
+    if (isLoading) return;
     const targetRoomId = currentRoom?.id || pendingRoomId;
     if (targetRoomId) {
       await leaveRoom(targetRoomId);
@@ -232,9 +234,9 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
     >
-      <div className="relative w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 overflow-hidden">
+      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-5 sm:p-6">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
           <div className="flex items-center gap-2">

@@ -91,6 +91,9 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
     } else if (finishReason === 'resignation') {
       reasonLabel = 'Vitória por abandono';
       description = 'O adversário desistiu da partida.';
+    } else if (finishReason === 'timeout') {
+      reasonLabel = 'Vitória por tempo (Timeout)';
+      description = 'O tempo limite do turno do adversário expirou no servidor.';
     } else {
       reasonLabel = 'Vitória normal';
       description = 'Parabéns! Sua estratégia garantiu a vitória nesta rodada.';
@@ -106,6 +109,10 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
       title = 'Você Perdeu';
       reasonLabel = 'Derrota por W.O.';
       description = 'O tempo limite de tolerância para reconexão expirou no servidor.';
+    } else if (finishReason === 'timeout') {
+      title = 'Você Perdeu';
+      reasonLabel = 'Derrota por tempo (Timeout)';
+      description = 'Seu tempo limite do turno expirou no servidor.';
     } else {
       title = 'Você Perdeu';
       reasonLabel = 'Adversário venceu';
@@ -120,13 +127,13 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="result-modal-title"
     >
       <div
-        className={`w-full max-w-md rounded-2xl border p-6 sm:p-8 space-y-6 shadow-2xl transition-all ${
+        className={`w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border p-5 sm:p-8 space-y-6 shadow-2xl transition-all ${
           theme === 'win'
             ? 'bg-gradient-to-b from-emerald-950/80 via-slate-900 to-slate-950 border-emerald-500/50 ring-1 ring-emerald-500/20'
             : theme === 'loss'

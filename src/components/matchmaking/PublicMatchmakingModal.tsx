@@ -55,7 +55,7 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
 
   // Iniciar busca na fila pública
   const handleJoinQueue = useCallback(async () => {
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || isActionLoading) return;
     setIsActionLoading(true);
     setErrorMsg(null);
 
@@ -169,7 +169,7 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
 
   // Cancelar busca na fila pública
   const handleCancelQueue = async () => {
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || isActionLoading) return;
     setIsActionLoading(true);
     setErrorMsg(null);
 
@@ -212,12 +212,12 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="matchmaking-modal-title"
     >
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 sm:p-8 space-y-6 shadow-2xl relative overflow-hidden">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-8 space-y-6 shadow-2xl relative">
         {/* Ambient Glow Header */}
         <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500" />
 
