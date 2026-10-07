@@ -32,6 +32,7 @@ export interface MatchHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPlayGame?: () => void;
+  onViewUserProfile?: (userId: string) => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -60,6 +61,7 @@ export const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
   isOpen,
   onClose,
   onPlayGame,
+  onViewUserProfile,
 }) => {
   const { isAuthenticated } = useAuth();
 
@@ -289,7 +291,19 @@ export const MatchHistoryModal: React.FC<MatchHistoryModalProps> = ({
                           {item.game_name || 'Jogo da Velha'}
                         </span>
                         <span className="text-xs text-slate-400">
-                          vs <strong className="text-slate-200">{opponentName}</strong>
+                          vs{' '}
+                          {item.opponents?.[0]?.user_id && onViewUserProfile ? (
+                            <button
+                              type="button"
+                              onClick={() => onViewUserProfile(item.opponents![0].user_id)}
+                              className="font-bold text-blue-400 hover:text-blue-300 hover:underline transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 rounded"
+                              title="Ver perfil do adversário"
+                            >
+                              {opponentName}
+                            </button>
+                          ) : (
+                            <strong className="text-slate-200">{opponentName}</strong>
+                          )}
                         </span>
                       </div>
 

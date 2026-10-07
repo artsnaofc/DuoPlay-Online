@@ -16,6 +16,7 @@ export interface HeaderProps {
   onNavigate?: (sectionId: string) => void;
   onOpenMatchmaking?: () => void;
   onOpenHistory?: () => void;
+  onOpenProfile?: () => void;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
 }
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   onOpenMatchmaking,
   onOpenHistory,
+  onOpenProfile,
   hasActiveMatch,
   onResumeActiveMatch,
 }) => {
@@ -136,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
               {!isLoading && (
                 <>
                   {isAuthenticated ? (
-                    <UserMenu onOpenHistory={onOpenHistory} />
+                    <UserMenu onOpenHistory={onOpenHistory} onOpenProfile={onOpenProfile} />
                   ) : (
                     <div className="flex items-center gap-2">
                       <button
@@ -164,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({
               <PWAInstallButton />
 
               {isAuthenticated ? (
-                <UserMenu onOpenHistory={onOpenHistory} />
+                <UserMenu onOpenHistory={onOpenHistory} onOpenProfile={onOpenProfile} />
               ) : (
                 <button
                   type="button"

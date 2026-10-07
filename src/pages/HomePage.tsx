@@ -16,11 +16,13 @@ import {
   History,
   Sparkles,
   Play,
+  User,
 } from 'lucide-react';
 import { GameCard } from '@/components/GameCard';
 import { GameItem, PlatformFeature } from '@/types/platform';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthModal } from '@/components/auth/AuthModal';
+import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import ticTacToeArtwork from '@/assets/images/tic_tac_toe_artwork_1791338972542.jpg';
 
 const GAMES: GameItem[] = [
@@ -113,6 +115,7 @@ export interface HomePageProps {
   onOpenMatchmaking?: () => void;
   onOpenLobby?: () => void;
   onOpenHistory?: () => void;
+  onOpenProfile?: () => void;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
 }
@@ -121,16 +124,22 @@ export const HomePage: React.FC<HomePageProps> = ({
   onOpenMatchmaking,
   onOpenLobby,
   onOpenHistory,
+  onOpenProfile,
   hasActiveMatch,
   onResumeActiveMatch,
 }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, profile, isAuthenticated } = useAuth();
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
   const displayName =
+    profile?.display_name ||
     user?.user_metadata?.display_name ||
     user?.email?.split('@')[0] ||
     'Jogador';
+
+  const totalMatches = profile?.total_matches ?? 0;
+  const totalWins = profile?.total_wins ?? 0;
+  const winRate = totalMatches > 0 ? Math.round((totalWins / totalMatches) * 100) : 0;
 
   const handleMatchmakingAction = () => {
     if (!isAuthenticated) {
@@ -154,31 +163,56 @@ export const HomePage: React.FC<HomePageProps> = ({
       {isAuthenticated && (
         <section className="space-y-4 animate-fade-in">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl relative overflow-hidden">
-            <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-base flex items-center justify-center shadow-md shadow-blue-900/40 shrink-0">
-                {displayName.charAt(0).toUpperCase()}
-              </div>
+            <div
+              className={`flex items-center gap-3.5 ${onOpenProfile ? 'cursor-pointer group' : ''}`}
+              onClick={onOpenProfile}
+            >
+              <PlayerAvatar
+                avatarUrl={profile?.avatar_url}
+                displayName={displayName}
+                username={profile?.username}
+                size="md"
+              />
               <div>
                 <div className="text-base font-extrabold text-white flex items-center gap-2">
-                  <span>Olá, {displayName}</span>
+                  <span className="group-hover:text-blue-400 transition-colors">Olá, {displayName}</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400" title="Sessão Ativa" />
                 </div>
                 <p className="text-xs text-slate-400">
-                  Bem-vindo ao lobby do DuoPlay. Escolha um jogo para entrar em ação.
+                  {profile ? (
+                    <span className="font-mono tabular-nums">
+                      {totalMatches} {totalMatches === 1 ? 'partida' : 'partidas'} · {totalWins} {totalWins === 1 ? 'vitória' : 'vitórias'} · {winRate}% taxa
+                    </span>
+                  ) : (
+                    <span>Bem-vindo ao lobby do DuoPlay. Escolha um jogo para entrar em ação.</span>
+                  )}
                 </p>
               </div>
             </div>
 
-            {onOpenHistory && (
-              <button
-                type="button"
-                onClick={onOpenHistory}
-                className="py-2 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs transition-colors flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-slate-400 shrink-0"
-              >
-                <History className="w-4 h-4 text-slate-400" />
-                <span>Ver Histórico</span>
-              </button>
-            )}
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+              {onOpenProfile && (
+                <button
+                  type="button"
+                  onClick={onOpenProfile}
+                  className="flex-1 sm:flex-initial py-2 px-3.5 rounded-xl bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/60 text-purple-300 font-bold text-xs transition-colors flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-purple-400"
+                >
+                  <User className="w-4 h-4 text-purple-400" />
+                  <span>Meu Perfil</span>
+                </button>
+              )}
+
+              {onOpenHistory && (
+                <button
+                  type="button"
+                  onClick={onOpenHistory}
+                  className="flex-1 sm:flex-initial py-2 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs transition-colors flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-slate-400"
+                >
+                  <History className="w-4 h-4 text-slate-400" />
+                  <span>Histórico</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Active Match Recovery Banner */}

@@ -18,6 +18,8 @@ import { ActiveMatchRecoveryModal } from '@/components/match/ActiveMatchRecovery
 import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
 import { MatchResultModal } from '@/components/match/MatchResultModal';
 import { MatchHistoryModal } from '@/components/history/MatchHistoryModal';
+import { PlayerProfileModal } from '@/components/profile/PlayerProfileModal';
+import { PublicPlayerProfileModal } from '@/components/profile/PublicPlayerProfileModal';
 import {
   getActiveMatchForCurrentUser,
   abandonMatch,
@@ -36,6 +38,8 @@ function MainApp() {
   const [isLobbyOpen, setIsLobbyOpen] = useState(false);
   const [isMatchmakingOpen, setIsMatchmakingOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
 
   // Recovery & Abandonment State
@@ -226,6 +230,7 @@ function MainApp() {
       <Header
         onOpenMatchmaking={() => setIsMatchmakingOpen(true)}
         onOpenHistory={() => setIsHistoryOpen(true)}
+        onOpenProfile={() => setIsProfileOpen(true)}
         hasActiveMatch={Boolean(recoveryMatchInfo)}
         onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
       />
@@ -238,6 +243,7 @@ function MainApp() {
             onLeave={handleLeaveMatch}
             onViewHistory={() => setIsHistoryOpen(true)}
             onStartRematch={handleStartMatch}
+            onViewPlayerProfile={(userId) => setViewingPublicUserId(userId)}
             onPlayAgain={() => {
               handleLeaveMatch();
               setIsMatchmakingOpen(true);
@@ -248,6 +254,7 @@ function MainApp() {
             onOpenMatchmaking={() => setIsMatchmakingOpen(true)}
             onOpenLobby={() => setIsLobbyOpen(true)}
             onOpenHistory={() => setIsHistoryOpen(true)}
+            onOpenProfile={() => setIsProfileOpen(true)}
             hasActiveMatch={Boolean(recoveryMatchInfo)}
             onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
           />
@@ -283,6 +290,7 @@ function MainApp() {
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
         onPlayGame={() => setIsMatchmakingOpen(true)}
+        onViewUserProfile={(userId) => setViewingPublicUserId(userId)}
       />
 
       {/* Modal de Recuperação de Partida Ativa */}
@@ -306,6 +314,7 @@ function MainApp() {
           finishReason={completedMatchRecovery.finish_reason}
           currentUserId={user?.id || null}
           myPlayer={{
+            userId: user?.id || null,
             gameSymbol: completedMatchRecovery.my_symbol,
             slot: completedMatchRecovery.my_slot,
             displayName: user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Você',
@@ -313,12 +322,14 @@ function MainApp() {
           opponentPlayer={
             completedMatchRecovery.opponents?.[0]
               ? {
+                  userId: completedMatchRecovery.opponents[0].user_id,
                   gameSymbol: completedMatchRecovery.opponents[0].game_symbol,
                   slot: completedMatchRecovery.opponents[0].slot,
                   displayName:
                     completedMatchRecovery.opponents[0].display_name ||
                     completedMatchRecovery.opponents[0].username ||
                     'Adversário',
+                  avatarUrl: completedMatchRecovery.opponents[0].avatar_url,
                 }
               : null
           }
@@ -332,8 +343,26 @@ function MainApp() {
             handleDismissCompletedRecovery();
             setIsMatchmakingOpen(true);
           }}
+          onViewUserProfile={(userId) => setViewingPublicUserId(userId)}
         />
       )}
+
+      {/* Modal de Perfil Próprio com Estatísticas e Edição */}
+      <PlayerProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        onOpenHistory={() => {
+          setIsProfileOpen(false);
+          setIsHistoryOpen(true);
+        }}
+      />
+
+      {/* Modal de Perfil Público de Outro Competidor */}
+      <PublicPlayerProfileModal
+        userId={viewingPublicUserId}
+        isOpen={Boolean(viewingPublicUserId)}
+        onClose={() => setViewingPublicUserId(null)}
+      />
 
       {/* Modal de Confirmação de Abandono (Origem: Recovery) */}
       <AbandonMatchModal

@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LogOut, User, Trophy, ChevronDown, History } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 
 export interface UserMenuProps {
   onOpenHistory?: () => void;
+  onOpenProfile?: () => void;
 }
 
-export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory }) => {
+export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory, onOpenProfile }) => {
   const { user, profile, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -25,7 +27,6 @@ export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory }) => {
 
   const displayName = profile?.display_name || user.email?.split('@')[0] || 'Jogador';
   const username = profile?.username || user.email?.split('@')[0] || 'player';
-  const initials = displayName.substring(0, 2).toUpperCase();
 
   return (
     <div className="relative" ref={menuRef}>
@@ -36,9 +37,12 @@ export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory }) => {
         aria-haspopup="true"
         aria-label="Menu do Usuário"
       >
-        <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
-          {initials}
-        </div>
+        <PlayerAvatar
+          avatarUrl={profile?.avatar_url}
+          displayName={displayName}
+          username={username}
+          size="sm"
+        />
         <div className="hidden sm:block text-left">
           <p className="text-xs font-semibold text-white leading-none truncate max-w-[120px]">
             {displayName}
@@ -55,7 +59,7 @@ export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory }) => {
           {/* User Info Header */}
           <div className="px-3 py-2 border-b border-slate-800/80 mb-1">
             <p className="text-xs font-bold text-white truncate">{displayName}</p>
-            <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
+            <p className="text-[11px] text-slate-400 truncate">@{username}</p>
           </div>
 
           {/* Quick Stats Summary */}
@@ -72,6 +76,21 @@ export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory }) => {
                 <span className="font-semibold text-slate-300 font-mono">{profile.total_matches}</span>
               </div>
             </div>
+          )}
+
+          {/* Profile Action */}
+          {onOpenProfile && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenProfile();
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left my-1"
+            >
+              <User className="w-3.5 h-3.5 text-purple-400" />
+              <span>Meu Perfil</span>
+            </button>
           )}
 
           {/* History Action */}

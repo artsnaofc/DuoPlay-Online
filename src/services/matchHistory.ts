@@ -13,6 +13,7 @@ export interface MatchHistoryOpponent {
   username: string;
   slot: number;
   game_symbol: string | null;
+  avatar_url?: string | null;
   is_winner: boolean;
   score: number;
 }

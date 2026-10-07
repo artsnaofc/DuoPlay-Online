@@ -20,9 +20,11 @@ import type { MatchPlayerSnapshot } from '@/multiplayer/network/types';
 import { RematchControl } from './RematchControl';
 
 export interface MatchResultPlayerInfo {
+  userId?: string | null;
   gameSymbol?: string | null;
   slot?: number;
   displayName?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface MatchResultModalProps {
@@ -40,6 +42,7 @@ export interface MatchResultModalProps {
   onViewHistory: () => void;
   onStartRematch?: (newMatchId: string) => void;
   onFindNewOpponent?: () => void;
+  onViewUserProfile?: (userId: string) => void;
 }
 
 export const MatchResultModal: React.FC<MatchResultModalProps> = ({
@@ -57,6 +60,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   onViewHistory,
   onStartRematch,
   onFindNewOpponent,
+  onViewUserProfile,
 }) => {
   if (!isOpen) return null;
 
@@ -209,9 +213,20 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           </div>
 
           <div className="space-y-1 text-right">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block truncate">
-              {opponentPlayer?.displayName || 'Adversário'}
-            </span>
+            {opponentPlayer?.userId && onViewUserProfile ? (
+              <button
+                type="button"
+                onClick={() => onViewUserProfile(opponentPlayer.userId!)}
+                className="text-[10px] uppercase font-bold text-blue-400 hover:text-blue-300 hover:underline transition-colors block truncate ml-auto focus-visible:outline-2 focus-visible:outline-blue-400 rounded"
+                title="Ver perfil do competidor"
+              >
+                {opponentPlayer?.displayName || 'Adversário'} ↗
+              </button>
+            ) : (
+              <span className="text-[10px] uppercase font-bold text-slate-400 block truncate">
+                {opponentPlayer?.displayName || 'Adversário'}
+              </span>
+            )}
             <div className="font-bold text-white truncate flex items-center justify-end gap-1.5">
               <span>{opponentPlayer?.gameSymbol ? `(${opponentPlayer.gameSymbol})` : `Slot ${opponentPlayer?.slot || 2}`}</span>
               {!isWinner && !isDraw && isFinished && <span className="text-emerald-400 text-[11px]">Vencedor</span>}

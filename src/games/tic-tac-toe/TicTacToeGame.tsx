@@ -27,6 +27,8 @@ import { TicTacToeBoard } from './TicTacToeBoard';
 import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
 import { MatchResultModal } from '@/components/match/MatchResultModal';
 import { abandonMatch, claimAbandonment } from '@/services/matchSession';
+import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
+import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile';
 
 interface TicTacToeGameProps {
   matchId: string;
@@ -34,6 +36,7 @@ interface TicTacToeGameProps {
   onViewHistory?: () => void;
   onPlayAgain?: () => void;
   onStartRematch?: (newMatchId: string) => void;
+  onViewPlayerProfile?: (userId: string) => void;
 }
 
 // 8 combinações clássicas de vitória para derivação visual caso o servidor não envie explicitamente
@@ -59,9 +62,11 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   onViewHistory,
   onPlayAgain,
   onStartRematch,
+  onViewPlayerProfile,
 }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const currentUserId = user?.id || null;
+  const [opponentProfile, setOpponentProfile] = useState<PublicPlayerProfile | null>(null);
 
   const {
     snapshot,
@@ -128,6 +133,22 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       setIsResultModalOpen(true);
     }
   }, [isFinished]);
+
+  // Carrega perfil público do adversário para identificação visual e estatísticas
+  useEffect(() => {
+    if (!opponentPlayer?.userId) return;
+
+    let isMounted = true;
+    fetchPublicProfile(opponentPlayer.userId).then((res) => {
+      if (isMounted && res.success && res.data) {
+        setOpponentProfile(res.data);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [opponentPlayer?.userId]);
 
   const isOpponentDisconnected = opponentPlayer?.connectionStatus === 'disconnected';
 
@@ -355,9 +376,17 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Você
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <PlayerAvatar
+                avatarUrl={profile?.avatar_url}
+                displayName={profile?.display_name || user?.email?.split('@')[0]}
+                username={profile?.username}
+                size="xs"
+              />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Você
+              </span>
+            </div>
             <span
               className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-black ${
                 mySymbol === 'X'
@@ -369,7 +398,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
             </span>
           </div>
           <div className="text-sm sm:text-base font-extrabold text-white truncate">
-            {user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Jogador'}
+            {profile?.display_name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Jogador'}
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px]">
             <span className="text-slate-400">Slot {myPlayer?.slot || 1}</span>
@@ -389,9 +418,17 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
           }`}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Adversário
-            </span>
+            <div className="flex items-center gap-2 min-w-0">
+              <PlayerAvatar
+                avatarUrl={opponentProfile?.avatarUrl}
+                displayName={opponentProfile?.displayName || 'Adversário'}
+                username={opponentProfile?.username}
+                size="xs"
+              />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Adversário
+              </span>
+            </div>
             <span
               className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-black ${
                 opponentSymbol === 'X'
@@ -402,8 +439,20 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
               {opponentSymbol || '?'}
             </span>
           </div>
-          <div className="text-sm sm:text-base font-extrabold text-white truncate">
-            {opponentPlayer ? `Oponente (Slot ${opponentPlayer.slot})` : 'Aguardando jogador...'}
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm sm:text-base font-extrabold text-white truncate">
+              {opponentProfile?.displayName || (opponentPlayer ? `Oponente (Slot ${opponentPlayer.slot})` : 'Aguardando jogador...')}
+            </div>
+            {opponentPlayer?.userId && onViewPlayerProfile && (
+              <button
+                type="button"
+                onClick={() => onViewPlayerProfile(opponentPlayer.userId)}
+                className="text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline shrink-0"
+                title="Ver perfil do adversário"
+              >
+                Perfil ↗
+              </button>
+            )}
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px]">
             <span className="text-slate-400">Slot {opponentPlayer?.slot || 2}</span>
@@ -591,8 +640,36 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
         isDraw={Boolean(snapshot?.isDraw)}
         finishReason={snapshot?.finishReason || null}
         currentUserId={currentUserId}
-        myPlayer={myPlayer}
-        opponentPlayer={opponentPlayer}
+        myPlayer={
+          myPlayer
+            ? {
+                userId: currentUserId,
+                gameSymbol: mySymbol,
+                slot: myPlayer.slot,
+                displayName:
+                  profile?.display_name ||
+                  user?.user_metadata?.display_name ||
+                  user?.email?.split('@')[0] ||
+                  'Você',
+                avatarUrl: profile?.avatar_url,
+              }
+            : null
+        }
+        opponentPlayer={
+          opponentPlayer
+            ? {
+                userId: opponentPlayer.userId,
+                gameSymbol: opponentSymbol,
+                slot: opponentPlayer.slot,
+                displayName:
+                  opponentProfile?.displayName ||
+                  opponentProfile?.username ||
+                  `Oponente (Slot ${opponentPlayer.slot})`,
+                avatarUrl: opponentProfile?.avatarUrl,
+              }
+            : null
+        }
+        onViewUserProfile={onViewPlayerProfile}
         onGoHome={() => {
           if (isFinished && currentUserId && typeof window !== 'undefined') {
             const seenKey = `seen_match_result_${currentUserId}_${matchId}`;
