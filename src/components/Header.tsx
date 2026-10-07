@@ -1,16 +1,32 @@
+// ============================================================================
+// Component: Header — DuoPlay-Online
+// Phase: Fase 10.4 — Redesign de Navegação de Plataforma de Jogos
+// Description: Top Bar Contract de 3 zonas com suporte a navegação por jogos,
+//              atalho para partidas, histórico e perfil de usuário.
+// ============================================================================
+
 import React, { useState } from 'react';
-import { Menu, X, Gamepad2, Sparkles, HelpCircle, Dices, LogIn, History } from 'lucide-react';
+import { Menu, X, Gamepad2, LogIn, Swords, History } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { UserMenu } from './auth/UserMenu';
 import { AuthModal } from './auth/AuthModal';
 import { useAuth } from '@/hooks/useAuth';
 
-interface HeaderProps {
+export interface HeaderProps {
   onNavigate?: (sectionId: string) => void;
+  onOpenMatchmaking?: () => void;
   onOpenHistory?: () => void;
+  hasActiveMatch?: boolean;
+  onResumeActiveMatch?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onNavigate,
+  onOpenMatchmaking,
+  onOpenHistory,
+  hasActiveMatch,
+  onResumeActiveMatch,
+}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -45,50 +61,75 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => 
       <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Brand Logo */}
+            {/* Zone 1: Brand Wordmark */}
             <div className="flex items-center gap-3">
               <button
+                type="button"
                 onClick={() => scrollTo('hero')}
-                className="flex items-center gap-2.5 text-left focus-visible:outline-2 focus-visible:outline-blue-400 rounded-lg p-1"
+                className="flex items-center gap-2.5 text-left focus-visible:outline-2 focus-visible:outline-blue-400 rounded-lg p-1 group"
                 aria-label="DuoPlay-Online Página Inicial"
               >
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 shadow-md shadow-blue-900/30 text-white">
+                <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 shadow-md shadow-blue-900/40 text-white group-hover:scale-105 transition-transform">
                   <Gamepad2 className="w-5 h-5" aria-hidden="true" />
                 </div>
-                <div>
-                  <span className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-                    DuoPlay<span className="text-blue-400">-Online</span>
-                  </span>
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-                    Jogos Multiplayer Web
-                  </span>
-                </div>
+                <span className="text-base font-extrabold tracking-tight text-white flex items-center gap-0.5">
+                  DuoPlay<span className="text-blue-400">-Online</span>
+                </span>
               </button>
             </div>
 
-            {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center gap-6" aria-label="Navegação Principal">
+            {/* Zone 2: Navigation Links */}
+            <nav className="hidden md:flex items-center gap-1" aria-label="Navegação Principal">
               <button
+                type="button"
                 onClick={() => scrollTo('games')}
-                className="text-xs font-medium text-slate-300 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 rounded-md py-1 px-2"
+                className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 whitespace-nowrap"
               >
                 Jogos
               </button>
-              <button
-                onClick={() => scrollTo('features')}
-                className="text-xs font-medium text-slate-300 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 rounded-md py-1 px-2"
-              >
-                Diferenciais
-              </button>
-              <button
-                onClick={() => scrollTo('how-it-works')}
-                className="text-xs font-medium text-slate-300 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 rounded-md py-1 px-2"
-              >
-                Como Funciona
-              </button>
+
+              {hasActiveMatch && onResumeActiveMatch ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onResumeActiveMatch();
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold text-amber-300 hover:text-amber-200 bg-amber-950/40 border border-amber-800/60 rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-amber-400 whitespace-nowrap animate-pulse"
+                >
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span>Partida Ativa</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenMatchmaking?.();
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 whitespace-nowrap"
+                >
+                  <Swords className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Encontrar Partida</span>
+                </button>
+              )}
+
+              {isAuthenticated && onOpenHistory && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenHistory();
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 whitespace-nowrap"
+                >
+                  <History className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Histórico</span>
+                </button>
+              )}
             </nav>
 
-            {/* Header Right Actions: PWA Install + Auth */}
+            {/* Zone 3: Header Right Actions (PWA Install + Auth) */}
             <div className="hidden sm:flex items-center gap-3">
               <PWAInstallButton />
 
@@ -99,14 +140,16 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => 
                   ) : (
                     <div className="flex items-center gap-2">
                       <button
+                        type="button"
                         onClick={handleOpenLogin}
                         className="px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-300 hover:text-white hover:bg-slate-900 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
                       >
                         Entrar
                       </button>
                       <button
+                        type="button"
                         onClick={handleOpenRegister}
-                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-900/30 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
+                        className="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-900/30 transition-all focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
                       >
                         Criar Conta
                       </button>
@@ -124,6 +167,7 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => 
                 <UserMenu onOpenHistory={onOpenHistory} />
               ) : (
                 <button
+                  type="button"
                   onClick={handleOpenLogin}
                   className="p-2 text-slate-300 hover:text-white rounded-lg hover:bg-slate-900"
                   aria-label="Entrar na conta"
@@ -133,6 +177,7 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => 
               )}
 
               <button
+                type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-blue-400"
                 aria-label={mobileMenuOpen ? 'Fechar menu' : 'Abrir menu de navegação'}
@@ -148,53 +193,68 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => 
         {mobileMenuOpen && (
           <div className="sm:hidden border-b border-slate-800 bg-slate-950 px-4 pt-2 pb-4 space-y-2">
             <button
+              type="button"
               onClick={() => scrollTo('games')}
-              className="flex items-center gap-3 w-full text-left px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-900 rounded-lg"
+              className="w-full text-left py-2 px-3 text-xs font-medium text-slate-300 hover:text-white rounded-lg hover:bg-slate-900"
             >
-              <Dices className="w-4 h-4 text-blue-400" />
               Jogos
             </button>
-            <button
-              onClick={() => scrollTo('features')}
-              className="flex items-center gap-3 w-full text-left px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-900 rounded-lg"
-            >
-              <Sparkles className="w-4 h-4 text-purple-400" />
-              Diferenciais
-            </button>
-            <button
-              onClick={() => scrollTo('how-it-works')}
-              className="flex items-center gap-3 w-full text-left px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-900 rounded-lg"
-            >
-              <HelpCircle className="w-4 h-4 text-emerald-400" />
-              Como Funciona
-            </button>
+
+            {hasActiveMatch && onResumeActiveMatch ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onResumeActiveMatch();
+                }}
+                className="w-full text-left py-2 px-3 text-xs font-bold text-amber-300 bg-amber-950/40 rounded-lg flex items-center gap-2"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span>Continuar Partida Ativa</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenMatchmaking?.();
+                }}
+                className="w-full text-left py-2 px-3 text-xs font-semibold text-slate-200 rounded-lg flex items-center gap-2 hover:bg-slate-900"
+              >
+                <Swords className="w-4 h-4 text-blue-400" />
+                <span>Encontrar Partida</span>
+              </button>
+            )}
 
             {isAuthenticated && onOpenHistory && (
               <button
+                type="button"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onOpenHistory();
                 }}
-                className="flex items-center gap-3 w-full text-left px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-900 rounded-lg"
+                className="w-full text-left py-2 px-3 text-xs font-medium text-slate-300 hover:text-white rounded-lg hover:bg-slate-900 flex items-center gap-2"
               >
-                <History className="w-4 h-4 text-blue-400" />
-                Histórico de Partidas
+                <History className="w-4 h-4 text-slate-400" />
+                <span>Histórico de Partidas</span>
               </button>
             )}
 
             {!isAuthenticated && (
-              <div className="pt-3 border-t border-slate-800/80 flex flex-col gap-2">
+              <div className="pt-2 border-t border-slate-800 flex gap-2">
                 <button
+                  type="button"
                   onClick={handleOpenLogin}
-                  className="w-full py-2 text-xs font-semibold rounded-lg bg-slate-900 border border-slate-800 text-slate-200 hover:bg-slate-800"
+                  className="flex-1 py-2 text-center text-xs font-semibold text-slate-200 bg-slate-900 rounded-lg border border-slate-800"
                 >
-                  Entrar na Conta
+                  Entrar
                 </button>
                 <button
+                  type="button"
                   onClick={handleOpenRegister}
-                  className="w-full py-2 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+                  className="flex-1 py-2 text-center text-xs font-bold text-white bg-blue-600 rounded-lg"
                 >
-                  Criar Conta Grátis
+                  Criar Conta
                 </button>
               </div>
             )}
@@ -202,7 +262,7 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenHistory }) => 
         )}
       </header>
 
-      {/* Global Auth Modal */}
+      {/* Auth Modal */}
       <AuthModal
         isOpen={authModalOpen}
         initialMode={authMode}

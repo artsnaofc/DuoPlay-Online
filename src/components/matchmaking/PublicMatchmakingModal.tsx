@@ -39,8 +39,37 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
   const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Evita re-disparar a navegação para o mesmo match_id
+  // Evita re-disparar a navegação para o mesmo match_id e controla auto-join
   const navigatedMatchIdRef = useRef<string | null>(null);
+  const hasAttemptedAutoJoinRef = useRef<boolean>(false);
+
+  // Iniciar busca na fila pública
+  const handleJoinQueue = useCallback(async () => {
+    setIsActionLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await joinMatchmakingQueue('tic_tac_toe');
+      if (res.success && res.data) {
+        setQueueInfo(res.data);
+        if (
+          res.data.status === 'matched' &&
+          res.data.match_id &&
+          navigatedMatchIdRef.current !== res.data.match_id
+        ) {
+          navigatedMatchIdRef.current = res.data.match_id;
+          onMatchFound(res.data.match_id);
+          onClose();
+        }
+      } else {
+        setErrorMsg(res.error || 'Não foi possível entrar na fila de matchmaking.');
+      }
+    } catch {
+      setErrorMsg('Erro de conexão ao comunicar com a fila de matchmaking.');
+    } finally {
+      setIsActionLoading(false);
+    }
+  }, [onMatchFound, onClose]);
 
   // Consulta o status atual da fila do próprio usuário no PostgreSQL
   const checkQueueStatus = useCallback(async () => {
@@ -67,18 +96,24 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
           }
         }
       } else if (res.success && res.data === null) {
-        setQueueInfo(null);
+        if (!hasAttemptedAutoJoinRef.current) {
+          hasAttemptedAutoJoinRef.current = true;
+          await handleJoinQueue();
+        } else {
+          setQueueInfo(null);
+        }
       }
     } catch {
       // Falhas transitórias são ignoradas no ciclo de polling
     }
-  }, [isOpen, onMatchFound, onClose]);
+  }, [isOpen, onMatchFound, onClose, handleJoinQueue]);
 
   // Polling moderado a cada 2.0s enquanto o modal estiver aberto em estado de espera
   useEffect(() => {
     if (!isOpen) {
       setQueueInfo(null);
       setErrorMsg(null);
+      hasAttemptedAutoJoinRef.current = false;
       return;
     }
 
@@ -90,34 +125,6 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
 
     return () => clearInterval(interval);
   }, [isOpen, checkQueueStatus]);
-
-  // Iniciar busca na fila pública
-  const handleJoinQueue = async () => {
-    setIsActionLoading(true);
-    setErrorMsg(null);
-
-    try {
-      const res = await joinMatchmakingQueue('tic_tac_toe');
-      if (res.success && res.data) {
-        setQueueInfo(res.data);
-        if (
-          res.data.status === 'matched' &&
-          res.data.match_id &&
-          navigatedMatchIdRef.current !== res.data.match_id
-        ) {
-          navigatedMatchIdRef.current = res.data.match_id;
-          onMatchFound(res.data.match_id);
-          onClose();
-        }
-      } else {
-        setErrorMsg(res.error || 'Não foi possível entrar na fila de matchmaking.');
-      }
-    } catch {
-      setErrorMsg('Erro de conexão ao comunicar com a fila de matchmaking.');
-    } finally {
-      setIsActionLoading(false);
-    }
-  };
 
   // Cancelar busca na fila pública
   const handleCancelQueue = async () => {

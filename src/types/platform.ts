@@ -9,6 +9,7 @@ export interface GameItem {
   iconName: 'grid' | 'activity' | 'worm';
   highlights: string[];
   isAvailable: boolean;
+  coverImage?: string;
 }
 
 export interface PlatformFeature {

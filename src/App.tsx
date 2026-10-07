@@ -1,8 +1,8 @@
 // ============================================================================
 // Application Entry: DuoPlay-Online App
-// Phase: Fase 7.1.1 — Integração Real de Presence, Recovery e Abandono
-// Description: Orquestração do ciclo de vida da aplicação com recuperação
-//              automática de partidas ativas no startup e gerenciamento de modais.
+// Phase: Fase 10.4 — Integração do Matchmaking e Redesign da Home
+// Description: Orquestração do ciclo de vida da aplicação com suporte a
+//              recuperação de partidas ativas, matchmaking público, salas privadas e modais.
 // ============================================================================
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -13,6 +13,7 @@ import { OfflineIndicator } from '@/components/OfflineIndicator';
 import { HomePage } from '@/pages/HomePage';
 import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
 import { RoomLobbyModal } from '@/components/lobby/RoomLobbyModal';
+import { PublicMatchmakingModal } from '@/components/matchmaking/PublicMatchmakingModal';
 import { ActiveMatchRecoveryModal } from '@/components/match/ActiveMatchRecoveryModal';
 import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
 import { MatchResultModal } from '@/components/match/MatchResultModal';
@@ -26,19 +27,21 @@ import {
   getLatestCompletedMatchForCurrentUser,
   type MatchHistoryItem,
 } from '@/services/matchHistory';
+import { getMyMatchmakingStatus } from '@/services/matchmaking';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
 
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [isLobbyOpen, setIsLobbyOpen] = useState(false);
+  const [isMatchmakingOpen, setIsMatchmakingOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
 
   // Recovery & Abandonment State
   const [recoveryMatchInfo, setRecoveryMatchInfo] = useState<ActiveMatchInfo | null>(null);
   const [isRecoveryModalOpen, setIsRecoveryModalOpen] = useState(false);
-  const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
+  const [isRecoveryLoading] = useState(false);
   const [isAbandonConfirmOpen, setIsAbandonConfirmOpen] = useState(false);
   const [isAbandoning, setIsAbandoning] = useState(false);
 
@@ -64,7 +67,7 @@ function MainApp() {
     }
   }, []);
 
-  // Checagem de partida ativa no startup / login
+  // Checagem de partida ativa / matchmaking no startup / login
   const checkActiveMatchOnStartup = useCallback(async (currentUserId: string) => {
     // Se já estiver em partida via URL ou estado, não abre modal de recuperação
     if (activeMatchId) return;
@@ -87,10 +90,22 @@ function MainApp() {
         if (!isDismissed) {
           setRecoveryMatchInfo(res.data);
           setIsRecoveryModalOpen(true);
+          return;
         }
       } else if (res.success && res.data === null) {
-        // Fase 8.3: Consulta a partida finalizada mais recente somente quando
-        // a RPC de partida ativa confirmar com sucesso que não existe partida em andamento.
+        // Fase 10.4: Checa se havia uma busca de matchmaking em andamento antes do reload
+        const mmStatusRes = await getMyMatchmakingStatus();
+        if (mmStatusRes.success && mmStatusRes.data) {
+          if (mmStatusRes.data.status === 'matched' && mmStatusRes.data.match_id) {
+            handleStartMatch(mmStatusRes.data.match_id);
+            return;
+          } else if (mmStatusRes.data.status === 'waiting') {
+            setIsMatchmakingOpen(true);
+            return;
+          }
+        }
+
+        // Consulta a partida finalizada mais recente quando não houver partida ativa nem matchmaking
         const historyRes = await getLatestCompletedMatchForCurrentUser();
         if (historyRes.success && historyRes.data) {
           const lastMatch = historyRes.data;
@@ -102,7 +117,6 @@ function MainApp() {
               Boolean(sessionStorage.getItem(seenKey));
           }
 
-          // Exibe o resultado se ainda não foi marcado como visto para este usuário e partida
           if (!isSeen) {
             setCompletedMatchRecovery(lastMatch);
             setIsCompletedResultOpen(true);
@@ -110,7 +124,7 @@ function MainApp() {
         }
       }
     } catch {
-      // Erro temporário de rede não interrompe o app
+      // Erros temporários de rede são ignorados no startup
     }
   }, [activeMatchId]);
 
@@ -119,17 +133,16 @@ function MainApp() {
     if (isAuthLoading) return;
 
     if (!isAuthenticated || !user) {
-      // Usuário deslogou: limpa estados de recuperação do usuário anterior
       lastCheckedUserIdRef.current = null;
       setRecoveryMatchInfo(null);
       setCompletedMatchRecovery(null);
       setIsRecoveryModalOpen(false);
       setIsCompletedResultOpen(false);
       setIsAbandonConfirmOpen(false);
+      setIsMatchmakingOpen(false);
       return;
     }
 
-    // Usuário logou ou trocou de conta
     if (user.id !== lastCheckedUserIdRef.current) {
       lastCheckedUserIdRef.current = user.id;
       setRecoveryMatchInfo(null);
@@ -142,6 +155,7 @@ function MainApp() {
 
   const handleStartMatch = (matchId: string) => {
     setIsLobbyOpen(false);
+    setIsMatchmakingOpen(false);
     setIsRecoveryModalOpen(false);
     setRecoveryMatchInfo(null);
     setIsCompletedResultOpen(false);
@@ -156,7 +170,6 @@ function MainApp() {
   };
 
   const handleLeaveMatch = () => {
-    // Sair da interface durante uma partida ativa não marca o resultado como visto.
     setActiveMatchId(null);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -198,7 +211,6 @@ function MainApp() {
         setIsRecoveryModalOpen(false);
         setRecoveryMatchInfo(null);
       } else {
-        // Falha no abandono
         setIsAbandonConfirmOpen(false);
       }
     } catch {
@@ -211,7 +223,12 @@ function MainApp() {
   return (
     <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-blue-600 selection:text-white">
       {/* Platform Header */}
-      <Header onOpenHistory={() => setIsHistoryOpen(true)} />
+      <Header
+        onOpenMatchmaking={() => setIsMatchmakingOpen(true)}
+        onOpenHistory={() => setIsHistoryOpen(true)}
+        hasActiveMatch={Boolean(recoveryMatchInfo)}
+        onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
+      />
 
       {/* Main Content Area */}
       <main className="grow">
@@ -223,13 +240,16 @@ function MainApp() {
             onStartRematch={handleStartMatch}
             onPlayAgain={() => {
               handleLeaveMatch();
-              setIsLobbyOpen(true);
+              setIsMatchmakingOpen(true);
             }}
           />
         ) : (
           <HomePage
-            onPlayGame={() => setIsLobbyOpen(true)}
+            onOpenMatchmaking={() => setIsMatchmakingOpen(true)}
             onOpenLobby={() => setIsLobbyOpen(true)}
+            onOpenHistory={() => setIsHistoryOpen(true)}
+            hasActiveMatch={Boolean(recoveryMatchInfo)}
+            onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
           />
         )}
       </main>
@@ -240,7 +260,14 @@ function MainApp() {
       {/* PWA Offline Connectivity Indicator */}
       <OfflineIndicator />
 
-      {/* Modal de Salas & Lobby para Multiplayer */}
+      {/* Modal de Matchmaking Público Autoritatívo */}
+      <PublicMatchmakingModal
+        isOpen={isMatchmakingOpen && !activeMatchId}
+        onClose={() => setIsMatchmakingOpen(false)}
+        onMatchFound={handleStartMatch}
+      />
+
+      {/* Modal de Salas & Lobby para Partidas Privadas */}
       <RoomLobbyModal
         isOpen={isLobbyOpen}
         initialCode={initialRoomCode}
@@ -255,7 +282,7 @@ function MainApp() {
       <MatchHistoryModal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
-        onPlayGame={() => setIsLobbyOpen(true)}
+        onPlayGame={() => setIsMatchmakingOpen(true)}
       />
 
       {/* Modal de Recuperação de Partida Ativa */}
