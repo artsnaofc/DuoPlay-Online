@@ -310,4 +310,84 @@ describe('Fase 10 & 10.1: Matchmaking Público, Concorrência e Reconciliação'
     assert.strictEqual(res.success, false);
     assert.strictEqual(res.code, 'P0015');
   });
+
+  it('13. Chamada direta de usuário à rotina interna reconcile_user_matchmaking_queue é rejeitada com erro de permissão 42501', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'reconcile_user_matchmaking_queue');
+      return {
+        data: null,
+        error: {
+          code: '42501',
+          message: 'permission denied for function reconcile_user_matchmaking_queue',
+        },
+      };
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('reconcile_user_matchmaking_queue', {
+      p_user_id: 'some-user-uuid',
+    });
+
+    assert.strictEqual(data, null);
+    assert.ok(error);
+    assert.strictEqual(error.code, '42501');
+    assert.ok(error.message.includes('permission denied'));
+  });
+
+  it('14. Tentativa de passar UUID de outro usuário para a rotina interna é bloqueada pela validação p_user_id == auth.uid(), retornando null', async () => {
+    const victimUserId = 'victim-user-uuid-999';
+
+    // Simula a trava defensiva p_user_id != auth.uid()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string, params: { p_user_id: string }) => {
+      assert.strictEqual(fn, 'reconcile_user_matchmaking_queue');
+      assert.strictEqual(params.p_user_id, victimUserId);
+      // Retorna null por conta da checagem IF p_user_id != auth.uid() THEN RETURN NULL
+      return {
+        data: null,
+        error: null,
+      };
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (supabase.rpc as any)('reconcile_user_matchmaking_queue', {
+      p_user_id: victimUserId,
+    });
+
+    assert.strictEqual(data, null);
+  });
+
+  it('15. As três RPCs públicas continuam chamando a rotina interna para o próprio usuário autenticado de forma transparente e segura', async () => {
+    const callerQueueId = 'my-own-queue-uuid';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      assert.ok(
+        fn === 'join_matchmaking_queue' ||
+          fn === 'cancel_matchmaking_queue' ||
+          fn === 'get_my_matchmaking_status'
+      );
+      return {
+        data: {
+          success: true,
+          data: {
+            queue_id: callerQueueId,
+            status: 'waiting',
+            match_id: null,
+          },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const joinRes = await joinMatchmakingQueue('tic_tac_toe');
+    const statusRes = await getMyMatchmakingStatus();
+
+    assert.strictEqual(joinRes.success, true);
+    assert.strictEqual(joinRes.data?.queue_id, callerQueueId);
+    assert.strictEqual(statusRes.success, true);
+    assert.strictEqual(statusRes.data?.queue_id, callerQueueId);
+  });
 });

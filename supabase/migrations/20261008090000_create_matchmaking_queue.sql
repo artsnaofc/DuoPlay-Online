@@ -65,7 +65,7 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 -- ----------------------------------------------------------------------------
--- 2. Rotina de Reconciliação Interna de Fila
+-- 2. Rotina de Reconciliação Interna de Fila (Privada / Não Exposta ao Cliente)
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.reconcile_user_matchmaking_queue(p_user_id UUID)
 RETURNS public.matchmaking_queue
@@ -77,7 +77,12 @@ DECLARE
     v_entry public.matchmaking_queue%ROWTYPE;
     v_match_status VARCHAR(20);
 BEGIN
-    -- Localiza qualquer entrada ativa ('waiting' ou 'matched') do usuário
+    -- Defesa Adicional Obrigatória: p_user_id deve corresponder estritamente a auth.uid()
+    IF p_user_id IS NULL OR auth.uid() IS NULL OR p_user_id != auth.uid() THEN
+        RETURN NULL;
+    END IF;
+
+    -- Localiza qualquer entrada ativa ('waiting' ou 'matched') do próprio usuário
     SELECT * INTO v_entry
     FROM public.matchmaking_queue
     WHERE user_id = p_user_id
@@ -123,8 +128,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.reconcile_user_matchmaking_queue(UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.reconcile_user_matchmaking_queue(UUID) TO authenticated;
+-- Revoga a permissão de execução de todos os papéis de cliente (rotina puramente interna)
+REVOKE ALL ON FUNCTION public.reconcile_user_matchmaking_queue(UUID) FROM PUBLIC, anon, authenticated;
 
 -- ----------------------------------------------------------------------------
 -- 3. RPC: cancel_matchmaking_queue()
