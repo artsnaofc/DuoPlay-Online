@@ -35,7 +35,9 @@ import { createRoom } from '@/services/rooms';
 import { createGameInvite } from '@/services/invites';
 import { useGameInvites } from '@/hooks/useGameInvites';
 import { usePresenceHeartbeat } from '@/hooks/usePresenceHeartbeat';
+import { useChat } from '@/hooks/useChat';
 import { ReceivedGameInviteModal } from '@/components/social/ReceivedGameInviteModal';
+import { ChatModal } from '@/components/chat/ChatModal';
 import type { Friend } from '@/types/social';
 
 function MainApp() {
@@ -52,6 +54,10 @@ function MainApp() {
 
   // Heartbeat de Presença Global (Fase 14.2 — Lease de Presença)
   usePresenceHeartbeat();
+
+  // Sistema de Comunicação e Chat Privado (Fase 15)
+  const chat = useChat();
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Convites de Partida em Tempo Real (Fase 14.2)
   const { activeInvite, accept: acceptGameInviteAction, decline: declineGameInviteAction } = useGameInvites();
@@ -258,6 +264,13 @@ function MainApp() {
     }
   };
 
+  const handleOpenChatWithFriend = async (friendUserId: string) => {
+    setIsFriendsOpen(false);
+    setViewingPublicUserId(null);
+    setIsChatOpen(true);
+    await chat.openConversationWithFriend(friendUserId);
+  };
+
   const handleAcceptInvite = async (inviteId: string) => {
     const res = await acceptGameInviteAction(inviteId);
     if (res.success && res.data?.room?.code) {
@@ -295,6 +308,8 @@ function MainApp() {
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenFriends={() => setIsFriendsOpen(true)}
+        onOpenChat={() => setIsChatOpen(true)}
+        unreadChatCount={chat.totalUnreadCount}
         hasActiveMatch={Boolean(recoveryMatchInfo)}
         onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
       />
@@ -359,6 +374,7 @@ function MainApp() {
           setViewingPublicUserId(userId);
         }}
         onPlayWithFriend={handlePlayWithFriend}
+        onOpenChatWithFriend={handleOpenChatWithFriend}
       />
 
       {/* Modal de Histórico Paginado de Partidas */}
@@ -439,6 +455,15 @@ function MainApp() {
         isOpen={Boolean(viewingPublicUserId)}
         onClose={() => setViewingPublicUserId(null)}
         onPlayWithPlayer={handlePlayWithPlayerId}
+        onOpenChatWithPlayer={handleOpenChatWithFriend}
+      />
+
+      {/* Modal de Central de Mensagens e Chat Privado (Fase 15) */}
+      <ChatModal
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        chat={chat}
+        onOpenFriends={() => setIsFriendsOpen(true)}
       />
 
       {/* Modal de Confirmação de Abandono (Origem: Recovery) */}

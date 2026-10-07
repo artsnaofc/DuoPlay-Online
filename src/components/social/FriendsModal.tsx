@@ -21,6 +21,7 @@ import {
   Clock,
   Trash2,
   LogIn,
+  MessageSquare,
 } from 'lucide-react';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import { useSocial } from '@/hooks/useSocial';
@@ -33,6 +34,7 @@ export interface FriendsModalProps {
   onClose: () => void;
   onViewUserProfile?: (userId: string) => void;
   onPlayWithFriend?: (friend: Friend) => void;
+  onOpenChatWithFriend?: (friendUserId: string) => void;
   onOpenAuth?: () => void;
   initialTab?: 'friends' | 'requests' | 'search';
 }
@@ -42,6 +44,7 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   onClose,
   onViewUserProfile,
   onPlayWithFriend,
+  onOpenChatWithFriend,
   onOpenAuth,
   initialTab = 'friends',
 }) => {
@@ -387,6 +390,18 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
                           </div>
                         ) : (
                           <>
+                            {onOpenChatWithFriend && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenChatWithFriend(friend.friend_id)}
+                                className="py-1.5 px-2.5 rounded-lg bg-violet-650/80 hover:bg-violet-600 text-white text-xs font-semibold transition-colors flex items-center gap-1 shadow-sm active:scale-95 border border-violet-500/30"
+                                title={`Conversar com ${friend.display_name}`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 text-violet-300" />
+                                <span className="hidden sm:inline">Chat</span>
+                              </button>
+                            )}
+
                             {onPlayWithFriend && (
                               <button
                                 type="button"

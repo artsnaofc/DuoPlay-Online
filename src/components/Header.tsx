@@ -6,7 +6,7 @@
 // ============================================================================
 
 import React, { useState } from 'react';
-import { Menu, X, Gamepad2, LogIn, Swords, History, Users } from 'lucide-react';
+import { Menu, X, Gamepad2, LogIn, Swords, History, Users, MessageSquare } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { UserMenu } from './auth/UserMenu';
 import { AuthModal } from './auth/AuthModal';
@@ -19,6 +19,8 @@ export interface HeaderProps {
   onOpenHistory?: () => void;
   onOpenProfile?: () => void;
   onOpenFriends?: () => void;
+  onOpenChat?: () => void;
+  unreadChatCount?: number;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
 }
@@ -29,6 +31,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenHistory,
   onOpenProfile,
   onOpenFriends,
+  onOpenChat,
+  unreadChatCount = 0,
   hasActiveMatch,
   onResumeActiveMatch,
 }) => {
@@ -133,6 +137,25 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Amigos</span>
                   {pendingCount > 0 && (
                     <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-slate-950 animate-pulse" />
+                  )}
+                </button>
+              )}
+
+              {isAuthenticated && onOpenChat && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenChat();
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 whitespace-nowrap relative"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-violet-400" />
+                  <span>Mensagens</span>
+                  {unreadChatCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-violet-600 text-[10px] font-bold text-white animate-pulse">
+                      {unreadChatCount}
+                    </span>
                   )}
                 </button>
               )}
@@ -275,6 +298,27 @@ export const Header: React.FC<HeaderProps> = ({
                 {pendingCount > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-[10px] font-bold text-white">
                     {pendingCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {isAuthenticated && onOpenChat && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenChat();
+                }}
+                className="w-full text-left py-2 px-3 text-xs font-medium text-slate-300 hover:text-white rounded-lg hover:bg-slate-900 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-violet-400" />
+                  <span>Mensagens</span>
+                </div>
+                {unreadChatCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-violet-600 text-[10px] font-bold text-white">
+                    {unreadChatCount}
                   </span>
                 )}
               </button>

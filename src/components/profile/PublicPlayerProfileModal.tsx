@@ -19,6 +19,7 @@ import {
   XCircle,
   Gamepad2,
   Trash2,
+  MessageSquare,
 } from 'lucide-react';
 import { PlayerAvatar } from './PlayerAvatar';
 import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile';
@@ -37,6 +38,7 @@ export interface PublicPlayerProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPlayWithPlayer?: (userId: string) => void;
+  onOpenChatWithPlayer?: (userId: string) => void;
 }
 
 export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> = ({
@@ -44,6 +46,7 @@ export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> =
   isOpen,
   onClose,
   onPlayWithPlayer,
+  onOpenChatWithPlayer,
 }) => {
   const [profile, setProfile] = useState<PublicPlayerProfile | null>(null);
   const [socialStatus, setSocialStatus] = useState<FriendshipStatusData | null>(null);
@@ -328,9 +331,19 @@ export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> =
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     {socialStatus.status === 'friends' && (
                       <>
+                        {onOpenChatWithPlayer && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenChatWithPlayer(profile.id)}
+                            className="flex-1 py-2 px-3 rounded-xl bg-violet-650/90 hover:bg-violet-600 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-violet-950/40 active:scale-95 border border-violet-500/30"
+                          >
+                            <MessageSquare className="w-4 h-4 text-violet-300" />
+                            <span>Enviar Mensagem</span>
+                          </button>
+                        )}
                         {onPlayWithPlayer && (
                           <button
                             type="button"
@@ -345,11 +358,11 @@ export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> =
                           type="button"
                           onClick={() => setIsConfirmingRemove(true)}
                           disabled={isSocialActionLoading}
-                          className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-red-950/40 hover:text-red-300 text-slate-400 text-xs font-semibold transition-colors flex items-center gap-1 border border-slate-700/60"
+                          className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-red-950/40 hover:text-red-300 text-slate-400 text-xs font-semibold transition-colors flex items-center justify-center gap-1 border border-slate-700/60"
                           title="Desfazer amizade"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Desfazer Amizade</span>
+                          <span className="sm:hidden">Desfazer Amizade</span>
                         </button>
                       </>
                     )}
