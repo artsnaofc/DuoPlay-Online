@@ -1,10 +1,121 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import type { Session } from '@supabase/supabase-js';
 import type { ProfileRow, ProfileUpdate } from '@/types/database';
 
 export interface AuthResult<T = void> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+// Mutex compartilhado para evitar múltiplas renovações de token concorrentes
+let inFlightRefreshPromise: Promise<AuthResult<Session>> | null = null;
+
+/**
+ * Identifica se um erro retornado pelo Supabase/PostgREST decorre de token JWT expirado ou falta de autenticação válida.
+ */
+export function isAuthOrTokenExpiredError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const err = error as { message?: string; code?: string; details?: string; hint?: string };
+  const msg = (err.message || '').toLowerCase();
+  const details = (err.details || '').toLowerCase();
+  const code = (err.code || '').toUpperCase();
+
+  // Erros de negócio não são erros de token expirado
+  if (
+    msg.includes('cannot_friend_self') ||
+    msg.includes('user_not_found') ||
+    msg.includes('request_not_found') ||
+    msg.includes('invalid_request_status') ||
+    msg.includes('friendship_exists') ||
+    msg.includes('p0040') ||
+    msg.includes('p0041') ||
+    msg.includes('p0042') ||
+    msg.includes('p0044')
+  ) {
+    return false;
+  }
+
+  return (
+    msg.includes('jwt expired') ||
+    msg.includes('token is expired') ||
+    msg.includes('invalid jwt') ||
+    msg.includes('pgrst301') ||
+    msg.includes('unauthorized') ||
+    msg.includes('session_not_found') ||
+    msg.includes('p0001') ||
+    code === 'PGRST301' ||
+    code === '401' ||
+    details.includes('jwt') ||
+    details.includes('expired')
+  );
+}
+
+/**
+ * Realiza refresh seguro e controlado da sessão do Supabase, compartilhando a promise em voo
+ * entre chamadas concorrentes para evitar múltiplos requests de refresh simultâneos.
+ */
+export async function safeRefreshSession(): Promise<AuthResult<Session>> {
+  if (!isSupabaseConfigured) {
+    return {
+      success: false,
+      error: 'Serviço de autenticação temporariamente indisponível.',
+    };
+  }
+
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise;
+  }
+
+  inFlightRefreshPromise = (async () => {
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+
+      if (error) {
+        // Se a sessão expirou completamente e não pode ser renovada, limpa o estado local
+        const errMsg = error.message || '';
+        if (
+          errMsg.includes('Invalid Refresh Token') ||
+          errMsg.includes('refresh_token_not_found') ||
+          errMsg.includes('JWT expired') ||
+          errMsg.includes('session_not_found')
+        ) {
+          try {
+            await supabase.auth.signOut({ scope: 'local' });
+          } catch {
+            // Silencia erro no signOut local
+          }
+        }
+
+        return {
+          success: false,
+          error: 'Sua sessão expirou. Entre novamente.',
+        };
+      }
+
+      if (!data.session) {
+        return {
+          success: false,
+          error: 'Sua sessão expirou. Entre novamente.',
+        };
+      }
+
+      return {
+        success: true,
+        data: data.session,
+      };
+    } catch {
+      return {
+        success: false,
+        error: 'Sua sessão expirou. Entre novamente.',
+      };
+    } finally {
+      inFlightRefreshPromise = null;
+    }
+  })();
+
+  return inFlightRefreshPromise;
 }
 
 export function translateAuthError(error: unknown): string {

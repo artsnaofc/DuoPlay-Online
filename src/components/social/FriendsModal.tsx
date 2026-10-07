@@ -20,9 +20,11 @@ import {
   AlertCircle,
   Clock,
   Trash2,
+  LogIn,
 } from 'lucide-react';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import { useSocial } from '@/hooks/useSocial';
+import { useAuth } from '@/hooks/useAuth';
 import { searchPlayers } from '@/services/social';
 import type { Friend, FriendSearchResult } from '@/types/social';
 
@@ -31,6 +33,7 @@ export interface FriendsModalProps {
   onClose: () => void;
   onViewUserProfile?: (userId: string) => void;
   onPlayWithFriend?: (friend: Friend) => void;
+  onOpenAuth?: () => void;
   initialTab?: 'friends' | 'requests' | 'search';
 }
 
@@ -39,8 +42,10 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   onClose,
   onViewUserProfile,
   onPlayWithFriend,
+  onOpenAuth,
   initialTab = 'friends',
 }) => {
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'search'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FriendSearchResult[]>([]);
@@ -69,13 +74,15 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
-      refresh(true);
+      if (isAuthenticated) {
+        refresh(true);
+      }
     } else {
       setSearchQuery('');
       setSearchResults([]);
       setSearchError(null);
     }
-  }, [isOpen, initialTab, refresh]);
+  }, [isOpen, initialTab, isAuthenticated, refresh]);
 
   // Busca com debounce de 350ms
   useEffect(() => {
@@ -233,18 +240,64 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
 
         {/* Error Alert if any */}
         {socialError && (
-          <div className="m-3 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-            <span className="grow">{socialError}</span>
+          <div className="m-3 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+              <span>{socialError}</span>
+            </div>
+            {socialError.includes('sessão expirou') && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenAuth?.();
+                }}
+                className="px-2.5 py-1 rounded-lg bg-red-800 hover:bg-red-700 text-white font-bold text-[11px] shrink-0 transition-colors"
+              >
+                Entrar
+              </button>
+            )}
           </div>
         )}
 
         {/* Tab Body Content with Scroll */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-          {/* TAB 1: MEUS AMIGOS */}
-          {activeTab === 'friends' && (
-            <div className="space-y-3">
-              {isSocialLoading && friends.length === 0 ? (
+          {isAuthLoading ? (
+            <div className="py-16 text-center space-y-2">
+              <RefreshCw className="w-6 h-6 animate-spin text-purple-400 mx-auto" />
+              <p className="text-xs text-slate-400">Verificando sessão de usuário...</p>
+            </div>
+          ) : !isAuthenticated ? (
+            <div className="py-12 px-4 text-center space-y-4 bg-slate-950/40 rounded-2xl border border-dashed border-slate-800">
+              <div className="w-12 h-12 rounded-2xl bg-purple-950/40 border border-purple-800/40 text-purple-400 flex items-center justify-center mx-auto">
+                <LogIn className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white">Acesso Restrito a Jogadores Autenticados</h3>
+                <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                  Entre com sua conta ou cadastre-se para adicionar amigos, enviar solicitações e acompanhar o status online dos competidores.
+                </p>
+              </div>
+              {onOpenAuth && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenAuth();
+                  }}
+                  className="py-2.5 px-5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-colors inline-flex items-center gap-2 shadow-lg shadow-purple-950/50"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Entrar ou Cadastrar</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* TAB 1: MEUS AMIGOS */}
+              {activeTab === 'friends' && (
+                <div className="space-y-3">
+                  {isSocialLoading && friends.length === 0 ? (
                 <div className="py-12 text-center space-y-2">
                   <RefreshCw className="w-6 h-6 animate-spin text-purple-400 mx-auto" />
                   <p className="text-xs text-slate-400">Carregando lista de amigos...</p>
@@ -601,7 +654,9 @@ export const FriendsModal: React.FC<FriendsModalProps> = ({
               )}
             </div>
           )}
-        </div>
+        </>
+      )}
+    </div>
       </div>
     </div>
   );

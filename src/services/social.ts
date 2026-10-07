@@ -6,6 +6,7 @@
 // ============================================================================
 
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { safeRefreshSession, isAuthOrTokenExpiredError } from '@/services/auth';
 import type {
   Friend,
   FriendRequest,
@@ -45,11 +46,25 @@ export function translateSocialError(error: unknown): { message: string; code: s
     return { message: 'Ocorreu um erro inesperado. Tente novamente.', code: 'UNKNOWN_ERROR' };
   }
 
-  const errObj = error as { code?: string; message?: string };
-  const rawMsg = errObj.message || '';
-  const code = errObj.code || 'UNKNOWN_ERROR';
+  const errObj = error as { code?: string; message?: string; details?: string; hint?: string };
+  const rawMsg = errObj.message || errObj.details || '';
+  const lowerMsg = rawMsg.toLowerCase();
+  const code = (errObj.code || 'UNKNOWN_ERROR').toUpperCase();
 
-  if (rawMsg.includes('P0001') || rawMsg.includes('UNAUTHORIZED')) {
+  // Tratamento de sessão / token expirado
+  if (
+    lowerMsg.includes('jwt expired') ||
+    lowerMsg.includes('token is expired') ||
+    lowerMsg.includes('invalid jwt') ||
+    lowerMsg.includes('pgrst301') ||
+    lowerMsg.includes('session_expired') ||
+    code === 'PGRST301' ||
+    code === 'SESSION_EXPIRED'
+  ) {
+    return { message: 'Sua sessão expirou. Entre novamente.', code: 'SESSION_EXPIRED' };
+  }
+
+  if (rawMsg.includes('P0001') || lowerMsg.includes('unauthorized') || code === '401') {
     return { message: 'Você precisa estar logado para realizar esta ação.', code: 'UNAUTHORIZED' };
   }
   if (rawMsg.includes('P0040') || rawMsg.includes('CANNOT_FRIEND_SELF')) {
@@ -73,14 +88,124 @@ export function translateSocialError(error: unknown): { message: string; code: s
   if (rawMsg.includes('FRIENDSHIP_EXISTS')) {
     return { message: 'Você e este jogador já são amigos.', code: 'FRIENDSHIP_EXISTS' };
   }
-  if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError') || rawMsg.includes('fetch')) {
+  if (lowerMsg.includes('failed to fetch') || lowerMsg.includes('networkerror') || lowerMsg.includes('fetch')) {
     return { message: 'Erro de conexão com o servidor. Verifique sua internet.', code: 'NETWORK_ERROR' };
   }
-  if (rawMsg.startsWith('SQLSTATE') || rawMsg.includes('PostgresError')) {
+  if (rawMsg.startsWith('SQLSTATE') || lowerMsg.includes('postgreserror') || lowerMsg.includes('postgrest')) {
     return { message: 'Erro ao processar ação social no servidor.', code };
   }
 
   return { message: rawMsg || 'Erro ao processar ação social.', code };
+}
+
+/**
+ * Executor central de RPCs sociais com renovação transparente de sessão (max 1 retry)
+ * e proteção estrita contra vazamento de mensagens brutas de erro de banco/JWT.
+ */
+async function executeSocialRpc<T>(
+  rpcName: string,
+  params?: Record<string, unknown>
+): Promise<SocialOperationResult<T>> {
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Supabase não configurado.', code: 'NOT_CONFIGURED' };
+  }
+
+  const runCall = async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return params ? (supabase.rpc as any)(rpcName, params) : (supabase.rpc as any)(rpcName);
+  };
+
+  try {
+    const { data, error } = await runCall();
+
+    if (error) {
+      if (isAuthOrTokenExpiredError(error)) {
+        // Tenta renovação transparente e compartilhada da sessão
+        const refreshRes = await safeRefreshSession();
+        if (refreshRes.success) {
+          // Repete a chamada uma única vez com o token renovado
+          const retryRes = await runCall();
+          if (!retryRes.error) {
+            const retryPayload = retryRes.data as {
+              success?: boolean;
+              data?: T;
+              error?: string;
+              code?: string;
+            };
+            if (retryPayload && typeof retryPayload === 'object' && 'success' in retryPayload) {
+              if (!retryPayload.success) {
+                return {
+                  success: false,
+                  error: retryPayload.error || 'Erro ao processar ação social.',
+                  code: retryPayload.code,
+                };
+              }
+              return { success: true, data: retryPayload.data };
+            }
+            return { success: true, data: retryRes.data as T };
+          }
+
+          const translatedRetry = translateSocialError(retryRes.error);
+          return { success: false, error: translatedRetry.message, code: translatedRetry.code };
+        }
+
+        // Se refresh falhou, limpa cache e retorna mensagem limpa
+        clearSocialCache();
+        return {
+          success: false,
+          error: 'Sua sessão expirou. Entre novamente.',
+          code: 'SESSION_EXPIRED',
+        };
+      }
+
+      const translated = translateSocialError(error);
+      return { success: false, error: translated.message, code: translated.code };
+    }
+
+    const payload = data as { success?: boolean; data?: T; error?: string; code?: string };
+    if (payload && typeof payload === 'object' && 'success' in payload) {
+      if (!payload.success) {
+        return {
+          success: false,
+          error: payload.error || 'Erro ao processar ação social.',
+          code: payload.code,
+        };
+      }
+      return { success: true, data: payload.data };
+    }
+
+    return { success: true, data: data as T };
+  } catch (err: unknown) {
+    if (isAuthOrTokenExpiredError(err)) {
+      const refreshRes = await safeRefreshSession();
+      if (refreshRes.success) {
+        try {
+          const retryRes = await runCall();
+          if (!retryRes.error) {
+            const retryPayload = retryRes.data as { success?: boolean; data?: T; error?: string };
+            if (retryPayload && typeof retryPayload === 'object' && 'success' in retryPayload) {
+              if (retryPayload.success) {
+                return { success: true, data: retryPayload.data };
+              }
+              return { success: false, error: retryPayload.error || 'Erro ao processar ação social.' };
+            }
+            return { success: true, data: retryRes.data as T };
+          }
+        } catch {
+          // ignora e cai no erro traduzido
+        }
+      }
+      clearSocialCache();
+      return {
+        success: false,
+        error: 'Sua sessão expirou. Entre novamente.',
+        code: 'SESSION_EXPIRED',
+      };
+    }
+
+    const errorObj = translateSocialError(err);
+    return { success: false, error: errorObj.message, code: errorObj.code };
+  }
 }
 
 /**
@@ -99,28 +224,10 @@ export async function searchPlayers(
     return { success: true, data: [] };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('search_players', {
-      p_query: cleanQuery,
-      p_limit: limit,
-    });
-
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: FriendSearchResult[]; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Erro ao pesquisar jogadores.' };
-    }
-
-    return { success: true, data: payload.data || [] };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
-  }
+  return executeSocialRpc<FriendSearchResult[]>('search_players', {
+    p_query: cleanQuery,
+    p_limit: limit,
+  });
 }
 
 /**
@@ -133,38 +240,15 @@ export async function sendFriendRequest(
     return { success: false, error: 'Supabase não configurado ou ID inválido.', code: 'INVALID_PARAM' };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('send_friend_request', {
-      p_recipient_id: recipientId,
-    });
+  const res = await executeSocialRpc<{ request_id: string; status: string; action: string }>(
+    'send_friend_request',
+    { p_recipient_id: recipientId }
+  );
 
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as {
-      success: boolean;
-      data?: { request_id: string; status: string; action: string };
-      error?: string;
-      code?: string;
-    };
-
-    if (!payload?.success) {
-      return {
-        success: false,
-        error: payload?.error || 'Não foi possível enviar a solicitação.',
-        code: payload?.code,
-      };
-    }
-
+  if (res.success) {
     clearSocialCache();
-    return { success: true, data: payload.data };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
   }
+  return res;
 }
 
 /**
@@ -177,28 +261,14 @@ export async function acceptFriendRequest(
     return { success: false, error: 'Supabase não configurado ou ID inválido.', code: 'INVALID_PARAM' };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('accept_friend_request', {
-      p_request_id: requestId,
-    });
+  const res = await executeSocialRpc<{ request_id: string; status: string }>('accept_friend_request', {
+    p_request_id: requestId,
+  });
 
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: { request_id: string; status: string }; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Falha ao aceitar solicitação.' };
-    }
-
+  if (res.success) {
     clearSocialCache();
-    return { success: true, data: payload.data };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
   }
+  return res;
 }
 
 /**
@@ -211,28 +281,14 @@ export async function declineFriendRequest(
     return { success: false, error: 'Supabase não configurado ou ID inválido.', code: 'INVALID_PARAM' };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('decline_friend_request', {
-      p_request_id: requestId,
-    });
+  const res = await executeSocialRpc<{ request_id: string; status: string }>('decline_friend_request', {
+    p_request_id: requestId,
+  });
 
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: { request_id: string; status: string }; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Falha ao recusar solicitação.' };
-    }
-
+  if (res.success) {
     clearSocialCache();
-    return { success: true, data: payload.data };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
   }
+  return res;
 }
 
 /**
@@ -245,28 +301,14 @@ export async function cancelFriendRequest(
     return { success: false, error: 'Supabase não configurado ou ID inválido.', code: 'INVALID_PARAM' };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('cancel_friend_request', {
-      p_request_id: requestId,
-    });
+  const res = await executeSocialRpc<{ request_id: string; status: string }>('cancel_friend_request', {
+    p_request_id: requestId,
+  });
 
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: { request_id: string; status: string }; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Falha ao cancelar solicitação.' };
-    }
-
+  if (res.success) {
     clearSocialCache();
-    return { success: true, data: payload.data };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
   }
+  return res;
 }
 
 /**
@@ -279,28 +321,14 @@ export async function removeFriend(
     return { success: false, error: 'Supabase não configurado ou ID inválido.', code: 'INVALID_PARAM' };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('remove_friend', {
-      p_friend_id: friendId,
-    });
+  const res = await executeSocialRpc<{ friend_id: string; removed: boolean }>('remove_friend', {
+    p_friend_id: friendId,
+  });
 
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: { friend_id: string; removed: boolean }; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Falha ao desfazer amizade.' };
-    }
-
+  if (res.success) {
     clearSocialCache();
-    return { success: true, data: payload.data };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
   }
+  return res;
 }
 
 /**
@@ -315,27 +343,11 @@ export async function getMyFriends(forceRefresh = false): Promise<SocialOperatio
     return { success: true, data: socialCache.friends.data };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('get_my_friends');
-
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: Friend[]; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Erro ao carregar lista de amigos.' };
-    }
-
-    const friends = payload.data || [];
-    socialCache.friends = { data: friends, timestamp: Date.now() };
-    return { success: true, data: friends };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
+  const res = await executeSocialRpc<Friend[]>('get_my_friends');
+  if (res.success && res.data) {
+    socialCache.friends = { data: res.data, timestamp: Date.now() };
   }
+  return res;
 }
 
 /**
@@ -356,27 +368,11 @@ export async function getReceivedFriendRequests(
     return { success: true, data: socialCache.receivedRequests.data };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('get_received_friend_requests');
-
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: FriendRequest[]; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Erro ao carregar solicitações recebidas.' };
-    }
-
-    const requests = payload.data || [];
-    socialCache.receivedRequests = { data: requests, timestamp: Date.now() };
-    return { success: true, data: requests };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
+  const res = await executeSocialRpc<FriendRequest[]>('get_received_friend_requests');
+  if (res.success && res.data) {
+    socialCache.receivedRequests = { data: res.data, timestamp: Date.now() };
   }
+  return res;
 }
 
 /**
@@ -397,27 +393,11 @@ export async function getSentFriendRequests(
     return { success: true, data: socialCache.sentRequests.data };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('get_sent_friend_requests');
-
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: FriendRequest[]; error?: string };
-    if (!payload?.success) {
-      return { success: false, error: payload?.error || 'Erro ao carregar solicitações enviadas.' };
-    }
-
-    const requests = payload.data || [];
-    socialCache.sentRequests = { data: requests, timestamp: Date.now() };
-    return { success: true, data: requests };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
+  const res = await executeSocialRpc<FriendRequest[]>('get_sent_friend_requests');
+  if (res.success && res.data) {
+    socialCache.sentRequests = { data: res.data, timestamp: Date.now() };
   }
+  return res;
 }
 
 /**
@@ -436,26 +416,12 @@ export async function getFriendshipStatus(
     return { success: true, data: cached.data };
   }
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('get_friendship_status', {
-      p_other_user_id: otherUserId,
-    });
+  const res = await executeSocialRpc<FriendshipStatusData>('get_friendship_status', {
+    p_other_user_id: otherUserId,
+  });
 
-    if (error) {
-      const translated = translateSocialError(error);
-      return { success: false, error: translated.message, code: translated.code };
-    }
-
-    const payload = data as { success: boolean; data?: FriendshipStatusData; error?: string };
-    if (!payload?.success || !payload.data) {
-      return { success: false, error: payload?.error || 'Erro ao consultar status de amizade.' };
-    }
-
-    socialCache.statusMap.set(otherUserId, { data: payload.data, timestamp: Date.now() });
-    return { success: true, data: payload.data };
-  } catch (err: unknown) {
-    const errorObj = translateSocialError(err);
-    return { success: false, error: errorObj.message, code: errorObj.code };
+  if (res.success && res.data) {
+    socialCache.statusMap.set(otherUserId, { data: res.data, timestamp: Date.now() });
   }
+  return res;
 }

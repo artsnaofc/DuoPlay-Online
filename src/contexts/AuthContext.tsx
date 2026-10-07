@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { fetchUserProfile, signOutUser } from '@/services/auth';
+import { fetchUserProfile, signOutUser, safeRefreshSession } from '@/services/auth';
 import type { ProfileRow } from '@/types/database';
 
 export interface AuthContextValue {
@@ -11,6 +11,7 @@ export interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   refreshProfile: () => Promise<void>;
+  refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -80,6 +81,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadProfile]);
 
+  const refreshSession = useCallback(async () => {
+    await safeRefreshSession();
+  }, []);
+
   const signOut = useCallback(async () => {
     await signOutUser();
     setUser(null);
@@ -94,6 +99,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     isAuthenticated: Boolean(user),
     refreshProfile,
+    refreshSession,
     signOut,
   };
 

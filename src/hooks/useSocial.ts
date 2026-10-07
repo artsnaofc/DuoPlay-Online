@@ -37,7 +37,7 @@ export interface UseSocialReturn {
 }
 
 export function useSocial(): UseSocialReturn {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const currentUserId = user?.id || null;
 
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -57,6 +57,11 @@ export function useSocial(): UseSocialReturn {
   }, []);
 
   const fetchSocialState = useCallback(async (force = false) => {
+    // Se a autenticação ainda estiver sendo resolvida, aguarda
+    if (isAuthLoading) {
+      return;
+    }
+
     if (!currentUserId || !isAuthenticated) {
       if (isMountedRef.current) {
         setFriends([]);
@@ -95,6 +100,8 @@ export function useSocial(): UseSocialReturn {
       if (!friendsRes.success || !receivedRes.success || !sentRes.success) {
         const firstErr = friendsRes.error || receivedRes.error || sentRes.error;
         setError(firstErr || 'Erro ao sincronizar informações sociais.');
+      } else {
+        setError(null);
       }
     } catch {
       if (isMountedRef.current) {
@@ -105,14 +112,16 @@ export function useSocial(): UseSocialReturn {
         setIsLoading(false);
       }
     }
-  }, [currentUserId, isAuthenticated]);
+  }, [currentUserId, isAuthenticated, isAuthLoading]);
 
   // Limpeza e recarregamento estrito ao trocar de usuário ou deslogar
   useEffect(() => {
+    if (isAuthLoading) return;
+
     if (currentUserId !== lastUserIdRef.current) {
       lastUserIdRef.current = currentUserId;
       clearSocialCache();
-      if (!currentUserId) {
+      if (!currentUserId || !isAuthenticated) {
         setFriends([]);
         setReceivedRequests([]);
         setSentRequests([]);
@@ -121,7 +130,7 @@ export function useSocial(): UseSocialReturn {
         fetchSocialState(true);
       }
     }
-  }, [currentUserId, fetchSocialState]);
+  }, [currentUserId, isAuthenticated, isAuthLoading, fetchSocialState]);
 
   // Inscrição Realtime única por usuário para receber novas solicitações e atualizações
   useEffect(() => {
