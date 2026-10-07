@@ -240,6 +240,11 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           currentUserId={currentUserId}
           onStartRematch={onStartRematch}
           onFindNewOpponent={onFindNewOpponent}
+          finishReason={finishReason}
+          isOpponentAvailable={
+            finishReason !== 'resignation' &&
+            finishReason !== 'abandonment'
+          }
         />
 
         {/* Action Buttons */}

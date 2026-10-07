@@ -8,10 +8,6 @@
 import React, { useState } from 'react';
 import {
   Swords,
-  Users,
-  Zap,
-  ShieldCheck,
-  Smartphone,
   KeyRound,
   History,
   Sparkles,
@@ -19,7 +15,7 @@ import {
   User,
 } from 'lucide-react';
 import { GameCard } from '@/components/GameCard';
-import { GameItem, PlatformFeature } from '@/types/platform';
+import { GameItem } from '@/types/platform';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
@@ -77,37 +73,6 @@ const GAMES: GameItem[] = [
       'Sobreviva mais tempo para vencer',
     ],
     isAvailable: false,
-  },
-];
-
-const FEATURES: PlatformFeature[] = [
-  {
-    title: 'Matchmaking Público',
-    subtitle: 'Sem Espera',
-    description:
-      'Encontre adversários instantaneamente via fila rápida autoritativa com pareamento automático.',
-    iconName: 'zap',
-  },
-  {
-    title: 'Salas por Código',
-    subtitle: 'Partidas Privadas',
-    description:
-      'Crie sua sala privada com código simples para desafiar amigos diretamente pelo navegador.',
-    iconName: 'users',
-  },
-  {
-    title: 'Conexão Tolerante',
-    subtitle: 'Resiliência a Oscilações',
-    description:
-      'Sistema preparado para tolhar curtas quedas no celular com janela de reconexão automática.',
-    iconName: 'shield',
-  },
-  {
-    title: 'App Instalável (PWA)',
-    subtitle: 'Mobile & Desktop',
-    description:
-      'Adicione à tela inicial do smartphone para jogar em tela cheia com alta velocidade.',
-    iconName: 'smartphone',
   },
 ];
 
@@ -311,38 +276,6 @@ export const HomePage: React.FC<HomePageProps> = ({
               onMatchmaking={handleMatchmakingAction}
               onCreateRoom={handleCreateRoomAction}
             />
-          ))}
-        </div>
-      </section>
-
-      {/* 4. Platform Benefits */}
-      <section id="features" className="space-y-6 pt-4">
-        <div className="border-b border-slate-800/80 pb-4">
-          <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-            Vantagens da Plataforma
-          </h2>
-          <p className="text-xs text-slate-400">
-            Estrutura desenhada para garantir fluidez e acessibilidade em qualquer dispositivo.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {FEATURES.map((feature, idx) => (
-            <div
-              key={idx}
-              className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex flex-col justify-between"
-            >
-              <div className="space-y-2">
-                <div className="w-9 h-9 rounded-xl bg-slate-800/80 border border-slate-700/60 text-blue-400 flex items-center justify-center">
-                  {feature.iconName === 'zap' && <Zap className="w-4 h-4" />}
-                  {feature.iconName === 'users' && <Users className="w-4 h-4" />}
-                  {feature.iconName === 'shield' && <ShieldCheck className="w-4 h-4" />}
-                  {feature.iconName === 'smartphone' && <Smartphone className="w-4 h-4" />}
-                </div>
-                <h3 className="text-sm font-bold text-white">{feature.title}</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">{feature.description}</p>
-              </div>
-            </div>
           ))}
         </div>
       </section>

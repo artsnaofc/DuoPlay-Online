@@ -375,4 +375,68 @@ describe('Fase 9 & 9.1: Sistema de Rematch com Aceite Bilateral e Endurecimento 
     assert.ok(res.data);
     assert.strictEqual(res.data.status, 'expired');
   });
+
+  it('15. Abandono do oponente: requestRematch retorna imediatamente OPPONENT_UNAVAILABLE', async () => {
+    const abandonedMatchId = 'match-id-abandoned-by-opponent';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string, params: { p_original_match_id: string }) => {
+      assert.strictEqual(fn, 'request_rematch');
+      assert.strictEqual(params.p_original_match_id, abandonedMatchId);
+      return {
+        data: {
+          success: false,
+          error: 'O oponente não está mais disponível para revanche.',
+          code: 'OPPONENT_UNAVAILABLE',
+        },
+        error: null,
+      };
+    };
+
+    const res = await requestRematch(abandonedMatchId);
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.code, 'OPPONENT_UNAVAILABLE');
+    assert.ok(res.error?.includes('não está mais disponível'));
+  });
+
+  it('16. Corrida concorrente no abandono: requestRematch rejeita e não cria solicitação pendente', async () => {
+    const raceMatchId = 'match-race-condition-abandon';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async () => ({
+      data: {
+        success: false,
+        error: 'O oponente não está mais disponível para revanche.',
+        code: 'OPPONENT_UNAVAILABLE',
+      },
+      error: null,
+    });
+
+    const res = await requestRematch(raceMatchId);
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.code, 'OPPONENT_UNAVAILABLE');
+  });
+
+  it('17. Pedido existente é invalidado (expired) se adversário abandonar posteriormente', async () => {
+    const abandonedMatchId = 'match-with-pending-then-abandon';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async () => ({
+      data: {
+        success: true,
+        data: {
+          rematch_request_id: 'rematch-req-abandoned',
+          original_match_id: abandonedMatchId,
+          status: 'expired',
+          is_my_request: true,
+        },
+        error: null,
+      },
+      error: null,
+    });
+
+    const res = await getPendingRematchForMatch(abandonedMatchId);
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.data?.status, 'expired');
+  });
 });

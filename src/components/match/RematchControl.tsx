@@ -1,8 +1,9 @@
 // ============================================================================
 // Component: RematchControl — DuoPlay-Online
-// Phase: Fase 9 — Rematch com Aceite Bilateral
+// Phase: Fase 12.1 — Correção de Fluidez da Revanche após Abandono
 // Description: Componente para gerenciamento de solicitação, aceite, recusa
-//              e navegação de revanche com sincronização autoritativa.
+//              e navegação de revanche com sincronização autoritativa Realtime
+//              e proteção contra estados presos por abandono/desconexão.
 // ============================================================================
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -21,12 +22,15 @@ import {
   getPendingRematchForMatch,
   type RematchInfo,
 } from '@/services/rematch';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export interface RematchControlProps {
   originalMatchId: string;
   currentUserId: string | null;
   onStartRematch?: (newMatchId: string) => void;
   onFindNewOpponent?: () => void;
+  finishReason?: string | null;
+  isOpponentAvailable?: boolean;
   className?: string;
 }
 
@@ -35,6 +39,8 @@ export const RematchControl: React.FC<RematchControlProps> = ({
   currentUserId,
   onStartRematch,
   onFindNewOpponent,
+  finishReason,
+  isOpponentAvailable,
   className = '',
 }) => {
   const [rematchInfo, setRematchInfo] = useState<RematchInfo | null>(null);
@@ -45,6 +51,13 @@ export const RematchControl: React.FC<RematchControlProps> = ({
 
   // Evita re-disparar o callback de navegação para a mesma nova partida
   const transitionedMatchIdRef = useRef<string | null>(null);
+
+  // Se a partida encerrou por abandono ou desistência, o oponente é considerado indisponível
+  const isOpponentExplicitlyUnavailable =
+    isOpponentAvailable === false ||
+    finishReason === 'resignation' ||
+    finishReason === 'abandonment' ||
+    errorCode === 'OPPONENT_UNAVAILABLE';
 
   // Função para consultar o estado do pedido no servidor
   const checkStatus = useCallback(async () => {
@@ -71,6 +84,10 @@ export const RematchControl: React.FC<RematchControlProps> = ({
       } else if (res.success && res.data === null) {
         // Sem pedido ativo
         setRematchInfo(null);
+      } else if (!res.success && res.code === 'OPPONENT_UNAVAILABLE') {
+        setRematchInfo(null);
+        setErrorCode('OPPONENT_UNAVAILABLE');
+        setErrorMsg('Seu adversário não está mais disponível.');
       }
     } catch {
       // Falhas temporárias são ignoradas na sondagem
@@ -98,16 +115,49 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     return () => clearInterval(interval);
   }, [rematchInfo?.status, rematchInfo?.expires_at, checkStatus]);
 
-  // Polling automático a cada 2.5 segundos para atualização em tempo real
+  // Inscrição Realtime no canal da partida / revanche para atualização instantânea
   useEffect(() => {
+    if (!isSupabaseConfigured || !originalMatchId) return;
+
     checkStatus();
 
-    const interval = setInterval(() => {
+    const channel = supabase
+      .channel(`rematch_sync_${originalMatchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'rematch_requests',
+          filter: `original_match_id=eq.${originalMatchId}`,
+        },
+        () => {
+          checkStatus();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'matches',
+          filter: `id=eq.${originalMatchId}`,
+        },
+        () => {
+          checkStatus();
+        }
+      )
+      .subscribe();
+
+    const pollInterval = setInterval(() => {
       checkStatus();
     }, 2500);
 
-    return () => clearInterval(interval);
-  }, [checkStatus]);
+    return () => {
+      clearInterval(pollInterval);
+      supabase.removeChannel(channel);
+    };
+  }, [originalMatchId, checkStatus]);
 
   // Handler para solicitar revanche
   const handleRequestRematch = async () => {
@@ -130,8 +180,14 @@ export const RematchControl: React.FC<RematchControlProps> = ({
           }
         }
       } else {
-        setErrorMsg(res.error || 'Não foi possível solicitar revanche.');
+        const isUnavailable = res.code === 'OPPONENT_UNAVAILABLE';
+        setErrorMsg(
+          isUnavailable
+            ? 'Seu adversário não está mais disponível.'
+            : res.error || 'Não foi possível solicitar revanche.'
+        );
         setErrorCode(res.code || null);
+        setRematchInfo(null);
       }
     } catch {
       setErrorMsg('Erro de conexão ao solicitar revanche.');
@@ -164,8 +220,14 @@ export const RematchControl: React.FC<RematchControlProps> = ({
           }
         }
       } else {
-        setErrorMsg(res.error || 'Não foi possível responder ao pedido de revanche.');
+        const isUnavailable = res.code === 'OPPONENT_UNAVAILABLE';
+        setErrorMsg(
+          isUnavailable
+            ? 'Seu adversário não está mais disponível.'
+            : res.error || 'Não foi possível responder ao pedido de revanche.'
+        );
         setErrorCode(res.code || null);
+        setRematchInfo(null);
       }
     } catch {
       setErrorMsg('Erro de conexão ao responder pedido de revanche.');
@@ -186,7 +248,31 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     );
   }
 
-  // 2. Estado: Pedido pendente enviado por mim (Aguardando resposta do oponente)
+  // 2. Estado: Adversário indisponível por abandono/desconexão
+  if (isOpponentExplicitlyUnavailable) {
+    return (
+      <div className={`p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-3 text-center animate-fade-in ${className}`}>
+        <div className="flex items-center justify-center gap-1.5 font-medium text-amber-300">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Seu adversário não está mais disponível.</span>
+        </div>
+        <div className="flex items-center justify-center gap-2 pt-1">
+          {onFindNewOpponent && (
+            <button
+              type="button"
+              onClick={onFindNewOpponent}
+              className="w-full sm:flex-1 py-2.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
+            >
+              <Swords className="w-4 h-4" />
+              <span>Encontrar outro jogador</span>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Estado: Pedido pendente enviado por mim (Aguardando resposta do oponente)
   if (rematchInfo?.status === 'pending' && rematchInfo.is_my_request) {
     return (
       <div className={`p-3.5 rounded-xl bg-blue-950/60 border border-blue-800/80 text-blue-200 text-xs space-y-2 text-center animate-fade-in ${className}`}>
@@ -206,7 +292,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     );
   }
 
-  // 3. Estado: Pedido pendente recebido do oponente (Devo aceitar ou recusar)
+  // 4. Estado: Pedido pendente recebido do oponente (Devo aceitar ou recusar)
   if (rematchInfo?.status === 'pending' && !rematchInfo.is_my_request) {
     return (
       <div className={`p-4 rounded-xl bg-purple-950/70 border border-purple-800 text-purple-100 text-xs space-y-3 animate-fade-in ${className}`}>
@@ -246,7 +332,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     );
   }
 
-  // 4. Estado: Revanche Recusada
+  // 5. Estado: Revanche Recusada
   if (rematchInfo?.status === 'declined') {
     return (
       <div className={`p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-3 text-center ${className}`}>
@@ -277,7 +363,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     );
   }
 
-  // 5. Estado: Revanche Expirada
+  // 6. Estado: Revanche Expirada
   if (rematchInfo?.status === 'expired') {
     return (
       <div className={`p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-3 text-center ${className}`}>
@@ -308,7 +394,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     );
   }
 
-  // 6. Erro de ação ou oponente indisponível
+  // 7. Erro de ação ou oponente indisponível
   if (errorMsg) {
     const isOpponentUnavailable = errorCode === 'OPPONENT_UNAVAILABLE';
     return (
@@ -343,7 +429,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     );
   }
 
-  // 7. Estado Padrão (Sem pedido de revanche ativo)
+  // 8. Estado Padrão (Sem pedido de revanche ativo e oponente disponível)
   return (
     <div className={`w-full ${className}`}>
       <button
