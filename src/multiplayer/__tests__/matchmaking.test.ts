@@ -390,4 +390,189 @@ describe('Fase 10 & 10.1: Matchmaking Público, Concorrência e Reconciliação'
     assert.strictEqual(statusRes.success, true);
     assert.strictEqual(statusRes.data?.queue_id, callerQueueId);
   });
+
+  it('16. Três usuários entram simultaneamente: A e B são pareados na partida M1; C permanece aguardando sem duplicidade', async () => {
+    let callIndex = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'join_matchmaking_queue');
+      callIndex++;
+      if (callIndex === 1 || callIndex === 2) {
+        return {
+          data: {
+            success: true,
+            data: { queue_id: `q-${callIndex}`, status: 'matched', match_id: 'match-m1-uuid' },
+            error: null,
+          },
+          error: null,
+        };
+      }
+      return {
+        data: {
+          success: true,
+          data: { queue_id: 'q-3', status: 'waiting', match_id: null },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const [resA, resB, resC] = await Promise.all([
+      joinMatchmakingQueue('tic_tac_toe'),
+      joinMatchmakingQueue('tic_tac_toe'),
+      joinMatchmakingQueue('tic_tac_toe'),
+    ]);
+
+    assert.strictEqual(resA.data?.status, 'matched');
+    assert.strictEqual(resB.data?.status, 'matched');
+    assert.strictEqual(resA.data?.match_id, 'match-m1-uuid');
+    assert.strictEqual(resB.data?.match_id, 'match-m1-uuid');
+
+    assert.strictEqual(resC.data?.status, 'waiting');
+    assert.strictEqual(resC.data?.match_id, null);
+  });
+
+  it('17. Match criado no backend sem resposta ao cliente: getMyMatchmakingStatus recupera o match_id ativo no reload', async () => {
+    const recoveredMatchId = 'recovered-after-drop-uuid';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'get_my_matchmaking_status');
+      return {
+        data: {
+          success: true,
+          data: {
+            queue_id: 'q-dropped-ack',
+            status: 'matched',
+            match_id: recoveredMatchId,
+          },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const res = await getMyMatchmakingStatus();
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.data?.status, 'matched');
+    assert.strictEqual(res.data?.match_id, recoveredMatchId);
+  });
+
+  it('18. Erro de rede ou RPC indisponível é tratado amigavelmente sem crashar o cliente', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async () => {
+      throw new Error('Network error / Connection failed');
+    };
+
+    const res = await joinMatchmakingQueue('tic_tac_toe');
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.code, 'UNEXPECTED_ERROR');
+    assert.ok(res.error?.includes('Network error') || res.error?.includes('inesperado'));
+  });
+
+  it('19. Idempotência do cancelamento: múltiplas chamadas consecutivas retornam cancelled sem efeitos colaterais', async () => {
+    let cancelCalls = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'cancel_matchmaking_queue');
+      cancelCalls++;
+      return {
+        data: {
+          success: true,
+          data: { status: 'cancelled', match_id: null },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const res1 = await cancelMatchmakingQueue();
+    const res2 = await cancelMatchmakingQueue();
+
+    assert.strictEqual(cancelCalls, 2);
+    assert.strictEqual(res1.data?.status, 'cancelled');
+    assert.strictEqual(res2.data?.status, 'cancelled');
+  });
+
+  it('20. Idempotência da consulta de status: consultas repetidas mantêm o mesmo snapshot de fila sem alterar estado', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'get_my_matchmaking_status');
+      return {
+        data: {
+          success: true,
+          data: {
+            queue_id: 'stable-queue-id',
+            status: 'waiting',
+            match_id: null,
+          },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const res1 = await getMyMatchmakingStatus();
+    const res2 = await getMyMatchmakingStatus();
+
+    assert.strictEqual(res1.data?.queue_id, 'stable-queue-id');
+    assert.strictEqual(res2.data?.queue_id, 'stable-queue-id');
+  });
+
+  it('21. Transição limpa de waiting expirado para novo join de matchmaking', async () => {
+    let callFn = '';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      callFn = fn;
+      if (fn === 'get_my_matchmaking_status') {
+        return {
+          data: {
+            success: true,
+            data: null, // Reconciliado expirado
+            error: null,
+          },
+          error: null,
+        };
+      }
+      return {
+        data: {
+          success: true,
+          data: {
+            queue_id: 'new-queue-after-expiration',
+            status: 'waiting',
+            match_id: null,
+          },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const statusRes = await getMyMatchmakingStatus();
+    assert.strictEqual(statusRes.data, null);
+
+    const joinRes = await joinMatchmakingQueue('tic_tac_toe');
+    assert.strictEqual(callFn, 'join_matchmaking_queue');
+    assert.strictEqual(joinRes.data?.status, 'waiting');
+    assert.strictEqual(joinRes.data?.queue_id, 'new-queue-after-expiration');
+  });
+
+  it('22. Segurança contra seleção indevida de outro jogo: tentar entrar com p_game_id inválido é rejeitado pela RPC', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string, params: { p_game_id: string }) => {
+      assert.strictEqual(fn, 'join_matchmaking_queue');
+      assert.notStrictEqual(params.p_game_id, 'tic_tac_toe');
+      return {
+        data: null,
+        error: {
+          code: 'P0015',
+          message: 'GAME_NOT_ACTIVE: Apenas o Jogo da Velha possui matchmaking público ativo.',
+        },
+      };
+    };
+
+    const res = await joinMatchmakingQueue('invalid_game_id');
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.code, 'P0015');
+  });
 });

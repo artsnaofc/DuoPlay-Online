@@ -1,9 +1,9 @@
 // ============================================================================
 // Component: PublicMatchmakingModal — DuoPlay-Online
-// Phase: Fase 10 — Matchmaking Público para Jogo da Velha
-// Description: Modal oficial de matchmaking público autoritativo no PostgreSQL.
-//              Gerencia entrada na fila, polling/realtime de status, cancelamento,
-//              feedback visual de busca e navegação automática para a nova partida.
+// Phase: Fase 10.5 — Hardening do Matchmaking
+// Description: Modal oficial de matchmaking público autoritativo com
+//              proteção contra atualização em unmount, pausa em abas inativas (visibilitychange),
+//              polling idempotente sem sobreposição e navegação autoritativa.
 // ============================================================================
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -39,17 +39,30 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
   const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Evita re-disparar a navegação para o mesmo match_id e controla auto-join
+  // Guardas de ciclo de vida e concorrência
+  const isMountedRef = useRef<boolean>(true);
+  const isPollingBusyRef = useRef<boolean>(false);
   const navigatedMatchIdRef = useRef<string | null>(null);
   const hasAttemptedAutoJoinRef = useRef<boolean>(false);
 
+  // Mantém rastreio do unmount para evitar setState em componente desmontado
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Iniciar busca na fila pública
   const handleJoinQueue = useCallback(async () => {
+    if (!isMountedRef.current) return;
     setIsActionLoading(true);
     setErrorMsg(null);
 
     try {
       const res = await joinMatchmakingQueue('tic_tac_toe');
+      if (!isMountedRef.current) return;
+
       if (res.success && res.data) {
         setQueueInfo(res.data);
         if (
@@ -65,18 +78,27 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
         setErrorMsg(res.error || 'Não foi possível entrar na fila de matchmaking.');
       }
     } catch {
-      setErrorMsg('Erro de conexão ao comunicar com a fila de matchmaking.');
+      if (isMountedRef.current) {
+        setErrorMsg('Erro de conexão ao comunicar com a fila de matchmaking.');
+      }
     } finally {
-      setIsActionLoading(false);
+      if (isMountedRef.current) {
+        setIsActionLoading(false);
+      }
     }
   }, [onMatchFound, onClose]);
 
   // Consulta o status atual da fila do próprio usuário no PostgreSQL
   const checkQueueStatus = useCallback(async () => {
-    if (!isOpen) return;
+    if (!isOpen || !isMountedRef.current || isPollingBusyRef.current) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+
+    isPollingBusyRef.current = true;
 
     try {
       const res = await getMyMatchmakingStatus();
+      if (!isMountedRef.current) return;
+
       if (res.success && res.data) {
         if (res.data.status === 'completed' || res.data.status === 'cancelled') {
           setQueueInfo(null);
@@ -105,10 +127,12 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
       }
     } catch {
       // Falhas transitórias são ignoradas no ciclo de polling
+    } finally {
+      isPollingBusyRef.current = false;
     }
   }, [isOpen, onMatchFound, onClose, handleJoinQueue]);
 
-  // Polling moderado a cada 2.0s enquanto o modal estiver aberto em estado de espera
+  // Lifecycle do Polling e evento de Visibilidade da Aba (visibilitychange)
   useEffect(() => {
     if (!isOpen) {
       setQueueInfo(null);
@@ -119,20 +143,40 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
 
     checkQueueStatus();
 
+    // Polling moderado a cada 2.0s
     const interval = setInterval(() => {
       checkQueueStatus();
     }, 2000);
 
-    return () => clearInterval(interval);
+    // Quando a aba volta a ficar visível, executa checagem imediata
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden && isOpen) {
+        checkQueueStatus();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
   }, [isOpen, checkQueueStatus]);
 
   // Cancelar busca na fila pública
   const handleCancelQueue = async () => {
+    if (!isMountedRef.current) return;
     setIsActionLoading(true);
     setErrorMsg(null);
 
     try {
       const res = await cancelMatchmakingQueue();
+      if (!isMountedRef.current) return;
+
       if (res.success && res.data) {
         if (
           res.data.status === 'matched' &&
@@ -150,9 +194,13 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
         setErrorMsg(res.error || 'Não foi possível cancelar a busca.');
       }
     } catch {
-      setErrorMsg('Erro ao solicitar cancelamento da busca.');
+      if (isMountedRef.current) {
+        setErrorMsg('Erro ao solicitar cancelamento da busca.');
+      }
     } finally {
-      setIsActionLoading(false);
+      if (isMountedRef.current) {
+        setIsActionLoading(false);
+      }
     }
   };
 
