@@ -13,10 +13,12 @@ import {
   Sparkles,
   Play,
   User,
+  Users,
 } from 'lucide-react';
 import { GameCard } from '@/components/GameCard';
 import { GameItem } from '@/types/platform';
 import { useAuth } from '@/hooks/useAuth';
+import { useSocial } from '@/hooks/useSocial';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import ticTacToeArtwork from '@/assets/images/tic_tac_toe_artwork_1791338972542.jpg';
@@ -81,6 +83,7 @@ export interface HomePageProps {
   onOpenLobby?: () => void;
   onOpenHistory?: () => void;
   onOpenProfile?: () => void;
+  onOpenFriends?: () => void;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
 }
@@ -90,10 +93,12 @@ export const HomePage: React.FC<HomePageProps> = ({
   onOpenLobby,
   onOpenHistory,
   onOpenProfile,
+  onOpenFriends,
   hasActiveMatch,
   onResumeActiveMatch,
 }) => {
   const { user, profile, isAuthenticated } = useAuth();
+  const { pendingCount } = useSocial();
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
   const displayName =
@@ -156,6 +161,22 @@ export const HomePage: React.FC<HomePageProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+              {onOpenFriends && (
+                <button
+                  type="button"
+                  onClick={onOpenFriends}
+                  className="flex-1 sm:flex-initial py-2 px-3.5 rounded-xl bg-indigo-950/50 hover:bg-indigo-900/60 border border-indigo-800/60 text-indigo-300 font-bold text-xs transition-colors flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-indigo-400 relative"
+                >
+                  <Users className="w-4 h-4 text-indigo-400" />
+                  <span>Amigos</span>
+                  {pendingCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-[10px] font-bold text-white">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+              )}
+
               {onOpenProfile && (
                 <button
                   type="button"

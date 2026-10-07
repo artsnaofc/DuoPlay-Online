@@ -14,60 +14,142 @@ import {
   RefreshCw,
   AlertCircle,
   Shield,
+  UserPlus,
+  Check,
+  XCircle,
+  Gamepad2,
+  Trash2,
 } from 'lucide-react';
 import { PlayerAvatar } from './PlayerAvatar';
 import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile';
+import {
+  getFriendshipStatus,
+  sendFriendRequest,
+  acceptFriendRequest,
+  declineFriendRequest,
+  cancelFriendRequest,
+  removeFriend,
+} from '@/services/social';
+import type { FriendshipStatusData } from '@/types/social';
 
 export interface PublicPlayerProfileModalProps {
   userId: string | null;
   isOpen: boolean;
   onClose: () => void;
+  onPlayWithPlayer?: (userId: string) => void;
 }
 
 export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> = ({
   userId,
   isOpen,
   onClose,
+  onPlayWithPlayer,
 }) => {
   const [profile, setProfile] = useState<PublicPlayerProfile | null>(null);
+  const [socialStatus, setSocialStatus] = useState<FriendshipStatusData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSocialActionLoading, setIsSocialActionLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const [isConfirmingRemove, setIsConfirmingRemove] = useState(false);
+
+  const loadProfileAndSocial = async (targetUserId: string) => {
+    setIsLoading(true);
+    setErrorMsg(null);
+    setIsConfirmingRemove(false);
+
+    try {
+      const [profRes, socRes] = await Promise.all([
+        fetchPublicProfile(targetUserId),
+        getFriendshipStatus(targetUserId, true),
+      ]);
+
+      if (profRes.success && profRes.data) {
+        setProfile(profRes.data);
+      } else {
+        setErrorMsg(profRes.error || 'Não foi possível carregar o perfil do jogador.');
+      }
+
+      if (socRes.success && socRes.data) {
+        setSocialStatus(socRes.data);
+      }
+    } catch {
+      setErrorMsg('Erro de conexão ao consultar perfil do competidor.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !userId) {
       setProfile(null);
+      setSocialStatus(null);
       setErrorMsg(null);
+      setIsConfirmingRemove(false);
       return;
     }
 
-    let isMounted = true;
-    setIsLoading(true);
-    setErrorMsg(null);
-
-    fetchPublicProfile(userId)
-      .then((res) => {
-        if (!isMounted) return;
-        if (res.success && res.data) {
-          setProfile(res.data);
-        } else {
-          setErrorMsg(res.error || 'Não foi possível carregar o perfil do jogador.');
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setErrorMsg('Erro de conexão ao consultar perfil do adversário.');
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
+    loadProfileAndSocial(userId);
   }, [isOpen, userId]);
+
+  const handleSendFriendRequest = async () => {
+    if (!userId || isSocialActionLoading) return;
+    setIsSocialActionLoading(true);
+    const res = await sendFriendRequest(userId);
+    setIsSocialActionLoading(false);
+    if (res.success) {
+      setSocialStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: res.data?.action === 'mutual_accepted' ? 'friends' : 'request_sent',
+              request_id: res.data?.request_id || null,
+            }
+          : null
+      );
+    }
+  };
+
+  const handleAcceptFriendRequest = async () => {
+    if (!socialStatus?.request_id || isSocialActionLoading) return;
+    setIsSocialActionLoading(true);
+    const res = await acceptFriendRequest(socialStatus.request_id);
+    setIsSocialActionLoading(false);
+    if (res.success) {
+      setSocialStatus((prev) => (prev ? { ...prev, status: 'friends' } : null));
+    }
+  };
+
+  const handleDeclineFriendRequest = async () => {
+    if (!socialStatus?.request_id || isSocialActionLoading) return;
+    setIsSocialActionLoading(true);
+    const res = await declineFriendRequest(socialStatus.request_id);
+    setIsSocialActionLoading(false);
+    if (res.success) {
+      setSocialStatus((prev) => (prev ? { ...prev, status: 'none', request_id: null } : null));
+    }
+  };
+
+  const handleCancelFriendRequest = async () => {
+    if (!socialStatus?.request_id || isSocialActionLoading) return;
+    setIsSocialActionLoading(true);
+    const res = await cancelFriendRequest(socialStatus.request_id);
+    setIsSocialActionLoading(false);
+    if (res.success) {
+      setSocialStatus((prev) => (prev ? { ...prev, status: 'none', request_id: null } : null));
+    }
+  };
+
+  const handleRemoveFriend = async () => {
+    if (!userId || isSocialActionLoading) return;
+    setIsSocialActionLoading(true);
+    const res = await removeFriend(userId);
+    setIsSocialActionLoading(false);
+    setIsConfirmingRemove(false);
+    if (res.success) {
+      setSocialStatus((prev) => (prev ? { ...prev, status: 'none', request_id: null } : null));
+    }
+  };
 
   if (!isOpen || !userId) return null;
 
@@ -191,6 +273,148 @@ export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> =
                 </div>
               </div>
             </div>
+
+            {/* Social Relationship & Action Bar */}
+            {socialStatus && socialStatus.status !== 'self' && (
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400 font-medium">Relacionamento:</span>
+                  {socialStatus.status === 'friends' ? (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-800/80 text-emerald-300 font-semibold text-[11px]">
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span>Amigos</span>
+                    </span>
+                  ) : socialStatus.status === 'request_sent' ? (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-950/60 border border-purple-800/80 text-purple-300 font-semibold text-[11px]">
+                      <span>Solicitação Enviada</span>
+                    </span>
+                  ) : socialStatus.status === 'request_received' ? (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-950/60 border border-blue-800/80 text-blue-300 font-semibold text-[11px]">
+                      <span>Solicitação Recebida</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 text-[11px]">Nenhum vínculo</span>
+                  )}
+                </div>
+
+                {/* Inline Confirmation for Friend Removal */}
+                {isConfirmingRemove ? (
+                  <div className="p-3 rounded-lg bg-red-950/40 border border-red-800/60 space-y-2">
+                    <p className="text-xs text-red-200">
+                      Deseja realmente desfazer a amizade com {profile.displayName}?
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleRemoveFriend}
+                        disabled={isSocialActionLoading}
+                        className="flex-1 py-1.5 px-3 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1"
+                      >
+                        {isSocialActionLoading ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Confirmar Remoção</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsConfirmingRemove(false)}
+                        disabled={isSocialActionLoading}
+                        className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {socialStatus.status === 'friends' && (
+                      <>
+                        {onPlayWithPlayer && (
+                          <button
+                            type="button"
+                            onClick={() => onPlayWithPlayer(profile.id)}
+                            className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-blue-950/40 active:scale-95"
+                          >
+                            <Gamepad2 className="w-4 h-4" />
+                            <span>Jogar com Amigo</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsConfirmingRemove(true)}
+                          disabled={isSocialActionLoading}
+                          className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-red-950/40 hover:text-red-300 text-slate-400 text-xs font-semibold transition-colors flex items-center gap-1 border border-slate-700/60"
+                          title="Desfazer amizade"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Desfazer Amizade</span>
+                        </button>
+                      </>
+                    )}
+
+                    {socialStatus.status === 'request_sent' && (
+                      <button
+                        type="button"
+                        onClick={handleCancelFriendRequest}
+                        disabled={isSocialActionLoading}
+                        className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 border border-slate-700"
+                      >
+                        {isSocialActionLoading ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-red-400" />
+                        )}
+                        <span>Cancelar Solicitação</span>
+                      </button>
+                    )}
+
+                    {socialStatus.status === 'request_received' && (
+                      <div className="w-full flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAcceptFriendRequest}
+                          disabled={isSocialActionLoading}
+                          className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/50"
+                        >
+                          {isSocialActionLoading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-4 h-4" />
+                          )}
+                          <span>Aceitar Solicitação</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeclineFriendRequest}
+                          disabled={isSocialActionLoading}
+                          className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-colors"
+                        >
+                          Recusar
+                        </button>
+                      </div>
+                    )}
+
+                    {socialStatus.status === 'none' && (
+                      <button
+                        type="button"
+                        onClick={handleSendFriendRequest}
+                        disabled={isSocialActionLoading}
+                        className="w-full py-2 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-md shadow-purple-950/50 active:scale-95"
+                      >
+                        {isSocialActionLoading ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <UserPlus className="w-4 h-4" />
+                        )}
+                        <span>Adicionar aos Amigos</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Close Button */}
             <button

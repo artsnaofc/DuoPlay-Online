@@ -6,17 +6,19 @@
 // ============================================================================
 
 import React, { useState } from 'react';
-import { Menu, X, Gamepad2, LogIn, Swords, History } from 'lucide-react';
+import { Menu, X, Gamepad2, LogIn, Swords, History, Users } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { UserMenu } from './auth/UserMenu';
 import { AuthModal } from './auth/AuthModal';
 import { useAuth } from '@/hooks/useAuth';
+import { useSocial } from '@/hooks/useSocial';
 
 export interface HeaderProps {
   onNavigate?: (sectionId: string) => void;
   onOpenMatchmaking?: () => void;
   onOpenHistory?: () => void;
   onOpenProfile?: () => void;
+  onOpenFriends?: () => void;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
 }
@@ -26,6 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenMatchmaking,
   onOpenHistory,
   onOpenProfile,
+  onOpenFriends,
   hasActiveMatch,
   onResumeActiveMatch,
 }) => {
@@ -33,6 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const { isAuthenticated, isLoading } = useAuth();
+  const { pendingCount } = useSocial();
 
   const scrollTo = (id: string) => {
     setMobileMenuOpen(false);
@@ -116,6 +120,23 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
 
+              {isAuthenticated && onOpenFriends && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenFriends();
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 whitespace-nowrap relative"
+                >
+                  <Users className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Amigos</span>
+                  {pendingCount > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-slate-950 animate-pulse" />
+                  )}
+                </button>
+              )}
+
               {isAuthenticated && onOpenHistory && (
                 <button
                   type="button"
@@ -138,7 +159,12 @@ export const Header: React.FC<HeaderProps> = ({
               {!isLoading && (
                 <>
                   {isAuthenticated ? (
-                    <UserMenu onOpenHistory={onOpenHistory} onOpenProfile={onOpenProfile} />
+                    <UserMenu
+                      onOpenHistory={onOpenHistory}
+                      onOpenProfile={onOpenProfile}
+                      onOpenFriends={onOpenFriends}
+                      pendingRequestsCount={pendingCount}
+                    />
                   ) : (
                     <div className="flex items-center gap-2">
                       <button
@@ -166,7 +192,12 @@ export const Header: React.FC<HeaderProps> = ({
               <PWAInstallButton />
 
               {isAuthenticated ? (
-                <UserMenu onOpenHistory={onOpenHistory} onOpenProfile={onOpenProfile} />
+                <UserMenu
+                  onOpenHistory={onOpenHistory}
+                  onOpenProfile={onOpenProfile}
+                  onOpenFriends={onOpenFriends}
+                  pendingRequestsCount={pendingCount}
+                />
               ) : (
                 <button
                   type="button"
@@ -225,6 +256,27 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Swords className="w-4 h-4 text-blue-400" />
                 <span>Encontrar Partida</span>
+              </button>
+            )}
+
+            {isAuthenticated && onOpenFriends && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenFriends();
+                }}
+                className="w-full text-left py-2 px-3 text-xs font-medium text-slate-300 hover:text-white rounded-lg hover:bg-slate-900 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-indigo-400" />
+                  <span>Amigos & Jogadores</span>
+                </div>
+                {pendingCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-[10px] font-bold text-white">
+                    {pendingCount}
+                  </span>
+                )}
               </button>
             )}
 

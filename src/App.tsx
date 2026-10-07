@@ -20,6 +20,7 @@ import { MatchResultModal } from '@/components/match/MatchResultModal';
 import { MatchHistoryModal } from '@/components/history/MatchHistoryModal';
 import { PlayerProfileModal } from '@/components/profile/PlayerProfileModal';
 import { PublicPlayerProfileModal } from '@/components/profile/PublicPlayerProfileModal';
+import { FriendsModal } from '@/components/social/FriendsModal';
 import {
   getActiveMatchForCurrentUser,
   abandonMatch,
@@ -30,6 +31,8 @@ import {
   type MatchHistoryItem,
 } from '@/services/matchHistory';
 import { getMyMatchmakingStatus } from '@/services/matchmaking';
+import { createRoom } from '@/services/rooms';
+import type { Friend } from '@/types/social';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -39,6 +42,7 @@ function MainApp() {
   const [isMatchmakingOpen, setIsMatchmakingOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isFriendsOpen, setIsFriendsOpen] = useState(false);
   const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
 
@@ -224,6 +228,36 @@ function MainApp() {
     }
   };
 
+  const handlePlayWithFriend = async (friend: Friend) => {
+    setIsFriendsOpen(false);
+    try {
+      const result = await createRoom('tic_tac_toe', `Duelo contra ${friend.display_name}`);
+      if (result.success && result.data?.room?.code) {
+        setInitialRoomCode(result.data.room.code);
+        setIsLobbyOpen(true);
+      } else {
+        setIsLobbyOpen(true);
+      }
+    } catch {
+      setIsLobbyOpen(true);
+    }
+  };
+
+  const handlePlayWithPlayerId = async () => {
+    setViewingPublicUserId(null);
+    try {
+      const result = await createRoom('tic_tac_toe', 'Duelo Amistoso');
+      if (result.success && result.data?.room?.code) {
+        setInitialRoomCode(result.data.room.code);
+        setIsLobbyOpen(true);
+      } else {
+        setIsLobbyOpen(true);
+      }
+    } catch {
+      setIsLobbyOpen(true);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-blue-600 selection:text-white">
       {/* Platform Header */}
@@ -231,6 +265,7 @@ function MainApp() {
         onOpenMatchmaking={() => setIsMatchmakingOpen(true)}
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenFriends={() => setIsFriendsOpen(true)}
         hasActiveMatch={Boolean(recoveryMatchInfo)}
         onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
       />
@@ -255,6 +290,7 @@ function MainApp() {
             onOpenLobby={() => setIsLobbyOpen(true)}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenProfile={() => setIsProfileOpen(true)}
+            onOpenFriends={() => setIsFriendsOpen(true)}
             hasActiveMatch={Boolean(recoveryMatchInfo)}
             onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
           />
@@ -283,6 +319,17 @@ function MainApp() {
           setInitialRoomCode(null);
         }}
         onMatchStarted={handleStartMatch}
+      />
+
+      {/* Modal de Amigos & Comunidade Social */}
+      <FriendsModal
+        isOpen={isFriendsOpen}
+        onClose={() => setIsFriendsOpen(false)}
+        onViewUserProfile={(userId) => {
+          setIsFriendsOpen(false);
+          setViewingPublicUserId(userId);
+        }}
+        onPlayWithFriend={handlePlayWithFriend}
       />
 
       {/* Modal de Histórico Paginado de Partidas */}
@@ -362,6 +409,7 @@ function MainApp() {
         userId={viewingPublicUserId}
         isOpen={Boolean(viewingPublicUserId)}
         onClose={() => setViewingPublicUserId(null)}
+        onPlayWithPlayer={handlePlayWithPlayerId}
       />
 
       {/* Modal de Confirmação de Abandono (Origem: Recovery) */}

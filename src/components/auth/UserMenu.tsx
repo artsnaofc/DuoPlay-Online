@@ -1,14 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LogOut, User, Trophy, ChevronDown, History } from 'lucide-react';
+import { LogOut, User, Trophy, ChevronDown, History, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 
 export interface UserMenuProps {
   onOpenHistory?: () => void;
   onOpenProfile?: () => void;
+  onOpenFriends?: () => void;
+  pendingRequestsCount?: number;
 }
 
-export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory, onOpenProfile }) => {
+export const UserMenu: React.FC<UserMenuProps> = ({
+  onOpenHistory,
+  onOpenProfile,
+  onOpenFriends,
+  pendingRequestsCount = 0,
+}) => {
   const { user, profile, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -90,6 +97,28 @@ export const UserMenu: React.FC<UserMenuProps> = ({ onOpenHistory, onOpenProfile
             >
               <User className="w-3.5 h-3.5 text-purple-400" />
               <span>Meu Perfil</span>
+            </button>
+          )}
+
+          {/* Friends Action */}
+          {onOpenFriends && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenFriends();
+              }}
+              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left my-1"
+            >
+              <div className="flex items-center gap-2">
+                <Users className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Amigos & Jogadores</span>
+              </div>
+              {pendingRequestsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-[10px] font-bold text-white">
+                  {pendingRequestsCount}
+                </span>
+              )}
             </button>
           )}
 
