@@ -208,7 +208,7 @@ export async function getMyMatchHistory(
 
 /**
  * Consulta a partida finalizada mais recente do usuário (ordenada por finished_at DESC)
- * utilizando a RPC já existente get_my_match_history(1, 0) para recovery de resultado pós-jogo.
+ * utilizando a RPC dedicada get_latest_completed_match_for_current_user para recovery oficial de resultado pós-jogo.
  */
 export async function getLatestCompletedMatchForCurrentUser(): Promise<{
   success: boolean;
@@ -216,18 +216,53 @@ export async function getLatestCompletedMatchForCurrentUser(): Promise<{
   error?: string;
   code?: string;
 }> {
+  if (!isSupabaseConfigured) {
+    return {
+      success: false,
+      data: null,
+      error: 'Supabase não está configurado.',
+      code: 'SUPABASE_NOT_CONFIGURED',
+    };
+  }
+
   try {
-    const res = await getMyMatchHistory(1, 0);
-    if (!res.success) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('get_latest_completed_match_for_current_user');
+
+    if (error) {
       return {
         success: false,
         data: null,
-        error: res.error,
-        code: res.code,
+        error: error.message || 'Erro ao consultar partida finalizada.',
+        code: error.code,
       };
     }
-    const latest = res.data && res.data.matches.length > 0 ? res.data.matches[0] : null;
-    return { success: true, data: latest };
+
+    const payload = data as {
+      success?: boolean;
+      data?: unknown;
+      error?: { message?: string; code?: string } | string | null;
+    } | null;
+
+    if (!payload || payload.success !== true) {
+      const errorMsg =
+        typeof payload?.error === 'string'
+          ? payload.error
+          : payload?.error?.message || 'Dados de partida finalizada indisponíveis.';
+      return {
+        success: false,
+        data: null,
+        error: errorMsg,
+        code: typeof payload?.error === 'object' ? payload?.error?.code : undefined,
+      };
+    }
+
+    if (!payload.data) {
+      return { success: true, data: null };
+    }
+
+    const normalized = normalizeMatchItem(payload.data);
+    return { success: true, data: normalized };
   } catch (err: unknown) {
     const errorMsg =
       err instanceof Error ? err.message : 'Erro inesperado ao consultar partida finalizada.';
