@@ -96,6 +96,12 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     setErrorMessage(null);
     setMode('waiting');
 
+    // Se a sala já está carregada e o código é idêntico, recarrega os detalhes diretamente
+    if (currentRoom && currentRoom.code === codeToJoin) {
+      await loadRoom(currentRoom.id);
+      return;
+    }
+
     const result = await joinRoomByCode(codeToJoin);
     if (result.success && result.data?.room?.id) {
       const roomId = result.data.room.id;
@@ -103,10 +109,12 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
       await loadRoom(roomId);
     } else {
       setIsLoading(false);
-      setErrorMessage(result.error || 'Não foi possível carregar a sala. Ela pode ter sido encerrada.');
-      setMode('options');
+      // Se a sala não existe ou foi encerrada, mantém o modo 'waiting' com tela de erro
+      // para evitar que o usuário caia no menu "Criar Sala" ao clicar em "Voltar para a sala".
+      setCurrentRoom(null);
+      setErrorMessage(result.error || 'Esta sala foi encerrada ou não foi encontrada.');
     }
-  }, [loadRoom]);
+  }, [currentRoom, loadRoom]);
 
   // Se receber código inicial via prop, carrega e abre a sala de espera diretamente
   useEffect(() => {
@@ -518,7 +526,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                   )}
                 </div>
 
-                {/* Mensagem de Alerta de Prontidão quando há 2 jogadores e nem todos estão prontos */}
+                {/* Mensagens de Alerta de Prontidão quando há 2 jogadores */}
                 {playerMembers.length >= 2 && !allPlayersReady && (
                   <div className="p-3.5 rounded-xl bg-amber-950/70 border border-amber-800/80 text-amber-200 text-xs flex items-center gap-2.5 animate-in fade-in">
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
@@ -528,8 +536,22 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                         {!guestMember?.is_ready && hostMember?.is_ready === false
                           ? 'Nenhum dos dois jogadores confirmou "Pronto". Ambos precisam confirmar antes de iniciar.'
                           : !guestMember?.is_ready
-                          ? `Aguardando ${guestMember?.display_name || 'o segundo jogador'} clicar em "Estou Pronto para Jogar!".`
+                          ? `Aguardando ${guestMember?.display_name || 'o convidado'} clicar em "Estou Pronto!".`
                           : `Aguardando o anfitrião (${hostMember?.display_name || 'Host'}) confirmar prontidão.`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {playerMembers.length >= 2 && allPlayersReady && (
+                  <div className="p-3.5 rounded-xl bg-emerald-950/70 border border-emerald-800/80 text-emerald-200 text-xs flex items-center gap-2.5 animate-in fade-in">
+                    <UserCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div>
+                      <span className="font-bold block text-emerald-300">Todos Prontos para Jogar!</span>
+                      <span className="text-[11px] text-emerald-200/90">
+                        {isHost
+                          ? 'Todos confirmaram prontidão. Clique em "Iniciar Partida Agora" para começar!'
+                          : 'Aguardando o Anfitrião clicar em "Iniciar Partida"...'}
                       </span>
                     </div>
                   </div>
@@ -539,34 +561,35 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                 <div className="pt-2 flex flex-col gap-2">
                   {isHost ? (
                     <>
-                      {/* Se o anfitrião não estiver marcado como pronto, exibe o botão de confirmação */}
-                      {myMember && !myMember.is_ready && (
+                      {!myMember?.is_ready ? (
+                        /* Botão único para o Host confirmar prontidão se não estiver pronto */
                         <button
                           type="button"
                           onClick={handleToggleReady}
                           disabled={isLoading}
-                          className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-900/30 transition-all flex items-center justify-center gap-2"
+                          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-900/30 transition-all flex items-center justify-center gap-2"
                         >
                           {isLoading && <RotateCw className="w-4 h-4 animate-spin" />}
                           <span>Confirmar Minha Prontidão ("Estou Pronto!")</span>
                         </button>
+                      ) : (
+                        /* Botão único de Iniciar Partida quando o Host está pronto */
+                        <button
+                          type="button"
+                          onClick={handleStartMatch}
+                          disabled={isLoading || !canStartMatch}
+                          className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+                        >
+                          {isLoading ? <RotateCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                          <span>
+                            {canStartMatch
+                              ? 'Iniciar Partida Agora'
+                              : playerMembers.length >= 2
+                              ? 'Aguardando Convidado Ficar Pronto'
+                              : 'Aguardando 2º Jogador Entrar'}
+                          </span>
+                        </button>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={handleStartMatch}
-                        disabled={isLoading || !canStartMatch}
-                        className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
-                      >
-                        {isLoading ? <RotateCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                        <span>
-                          {canStartMatch
-                            ? 'Iniciar Partida Agora'
-                            : playerMembers.length >= 2
-                            ? 'Aguardando Prontidão dos Jogadores'
-                            : 'Aguardando 2º Jogador'}
-                        </span>
-                      </button>
                     </>
                   ) : (
                     <button
@@ -575,12 +598,12 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                       disabled={isLoading}
                       className={`w-full py-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 ${
                         myMember?.is_ready
-                          ? 'bg-slate-800 text-slate-200 hover:bg-slate-750'
+                          ? 'bg-slate-800 text-slate-200 hover:bg-slate-750 border border-slate-700'
                           : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-900/30'
                       }`}
                     >
                       {isLoading && <RotateCw className="w-4 h-4 animate-spin" />}
-                      <span>{myMember?.is_ready ? 'Cancelar Prontidão' : 'Estou Pronto para Jogar!'}</span>
+                      <span>{myMember?.is_ready ? 'Cancelar Minha Prontidão' : 'Estou Pronto para Jogar!'}</span>
                     </button>
                   )}
 
