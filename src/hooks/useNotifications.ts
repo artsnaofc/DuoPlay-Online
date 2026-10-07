@@ -91,7 +91,12 @@ export function useNotifications() {
         } else {
           setNotifications((prev) => {
             const existingIds = new Set(prev.map((n) => n.id));
-            const newItems = res.data!.filter((n) => !existingIds.has(n.id));
+            const existingKeys = new Set(
+              prev.map((n) => n.event_key).filter((k): k is string => Boolean(k))
+            );
+            const newItems = res.data!.filter(
+              (n) => !existingIds.has(n.id) && (!n.event_key || !existingKeys.has(n.event_key))
+            );
             return sortNotifications([...prev, ...newItems]);
           });
           setHasMore(res.data.length >= PAGE_SIZE);
@@ -108,13 +113,20 @@ export function useNotifications() {
   const markAsRead = useCallback(async (notificationId: string) => {
     if (!notificationId) return;
 
-    // Otimista
+    let wasUnread = false;
     setNotifications((prev) =>
-      prev.map((n) =>
-        n.id === notificationId ? { ...n, read_at: n.read_at || new Date().toISOString() } : n
-      )
+      prev.map((n) => {
+        if (n.id === notificationId) {
+          if (!n.read_at) wasUnread = true;
+          return { ...n, read_at: n.read_at || new Date().toISOString() };
+        }
+        return n;
+      })
     );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
+
+    if (wasUnread) {
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    }
 
     await markNotificationRead(notificationId);
   }, []);
@@ -164,13 +176,16 @@ export function useNotifications() {
 
           setNotifications((prev) => {
             // Deduplicação estrita por ID e event_key
-            if (prev.some((n) => n.id === newNotif.id)) return prev;
+            const isDuplicate = prev.some(
+              (n) => n.id === newNotif.id || (Boolean(newNotif.event_key) && n.event_key === newNotif.event_key)
+            );
+            if (isDuplicate) return prev;
+
+            if (!newNotif.read_at) {
+              setUnreadCount((prevCount) => prevCount + 1);
+            }
             return sortNotifications([newNotif, ...prev]);
           });
-
-          if (!newNotif.read_at) {
-            setUnreadCount((prev) => prev + 1);
-          }
         }
       )
       .on(
