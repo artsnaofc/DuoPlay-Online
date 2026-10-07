@@ -461,7 +461,8 @@ BEGIN
             ORDER BY sr.created_at ASC, sr.id ASC
         ), '[]'::jsonb),
         (SELECT count(*) FROM page_rows)
-    INTO v_messages, v_count;
+    INTO v_messages, v_count
+    FROM sliced_rows sr;
 
     IF v_count > v_limit THEN
         v_has_more := true;

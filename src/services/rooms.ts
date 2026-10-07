@@ -329,3 +329,65 @@ export async function getRoomDetails(roomId: string): Promise<RoomOperationResul
     return { success: false, error: translated.message, code: translated.code };
   }
 }
+
+/**
+ * Consulta se o usuário autenticado atual é membro de alguma sala em estado de espera ('waiting').
+ */
+export async function getMyActiveWaitingRoom(): Promise<RoomOperationResult<RoomWithMembers | null>> {
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Supabase não está configurado.', code: 'NOT_CONFIGURED' };
+  }
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { success: true, data: null };
+
+    const { data: myMemberships, error: memberErr } = await supabase
+      .from('room_members')
+      .select('room_id')
+      .eq('user_id', user.id);
+
+    if (memberErr || !myMemberships || myMemberships.length === 0) {
+      return { success: true, data: null };
+    }
+
+    const roomIds = myMemberships.map((m) => m.room_id);
+
+    const { data: rooms, error: roomsErr } = await supabase
+      .from('rooms')
+      .select('id, status, created_at')
+      .eq('status', 'waiting')
+      .in('id', roomIds)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (roomsErr || !rooms || rooms.length === 0) {
+      return { success: true, data: null };
+    }
+
+    const activeCandidate = rooms[0];
+    const roomCreatedAt = new Date(activeCandidate.created_at).getTime();
+    const now = Date.now();
+    const MAX_WAITING_ROOM_AGE_MS = 60 * 60 * 1000; // 1 hora max
+
+    if (now - roomCreatedAt > MAX_WAITING_ROOM_AGE_MS) {
+      return { success: true, data: null };
+    }
+
+    const detailsRes = await getRoomDetails(activeCandidate.id);
+    if (!detailsRes.success || !detailsRes.data) {
+      return { success: true, data: null };
+    }
+
+    // Se a sala não estiver em 'waiting' ou o usuário não for membro ativo
+    const isUserMember = detailsRes.data.members.some((m) => m.user_id === user.id);
+    if (detailsRes.data.status !== 'waiting' || !isUserMember) {
+      return { success: true, data: null };
+    }
+
+    return detailsRes;
+  } catch (err) {
+    const translated = translateRoomError(err);
+    return { success: false, error: translated.message, code: translated.code };
+  }
+}

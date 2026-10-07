@@ -139,6 +139,16 @@ export function useChat(): UseChatReturn {
           });
 
           markConversationRead(conversationId).catch(() => {});
+        } else if (!res.success) {
+          logChatDiagnostic('CHAT_RECONCILE_FAILED', {
+            conversationId,
+            origin,
+            error: res.error,
+            code: res.code,
+          });
+          if (res.error) {
+            setError(res.error);
+          }
         }
       } catch (err) {
         logChatDiagnostic('CHAT_RECONCILE_ERROR', {

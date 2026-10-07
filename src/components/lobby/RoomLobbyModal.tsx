@@ -23,6 +23,7 @@ import {
   ArrowLeft,
   RefreshCw,
   UserPlus,
+  Minimize2,
 } from 'lucide-react';
 import {
   createRoom,
@@ -69,14 +70,6 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     setMode(newMode);
   };
 
-  // Se receber código inicial via prop (ex: URL ?room=XYZ), abre direto no modo join
-  useEffect(() => {
-    if (initialCode && initialCode.trim()) {
-      setJoinCode(initialCode.trim().toUpperCase());
-      setMode('join');
-    }
-  }, [initialCode]);
-
   // Carrega ou recarrega os detalhes da sala de forma idempotente (sem criar nova sala)
   const loadRoom = useCallback(async (roomId: string) => {
     setIsLoading(true);
@@ -96,6 +89,35 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
       return false;
     }
   }, []);
+
+  // Auto-Entrada / Carregamento Direto ao abrir com código inicial (ex: "Voltar para a Sala")
+  const handleAutoJoin = useCallback(async (codeToJoin: string) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    setMode('waiting');
+
+    const result = await joinRoomByCode(codeToJoin);
+    if (result.success && result.data?.room?.id) {
+      const roomId = result.data.room.id;
+      setPendingRoomId(roomId);
+      await loadRoom(roomId);
+    } else {
+      setIsLoading(false);
+      setErrorMessage(result.error || 'Não foi possível carregar a sala. Ela pode ter sido encerrada.');
+      setMode('options');
+    }
+  }, [loadRoom]);
+
+  // Se receber código inicial via prop, carrega e abre a sala de espera diretamente
+  useEffect(() => {
+    if (isOpen && initialCode && initialCode.trim()) {
+      const cleanCode = initialCode.trim().toUpperCase();
+      setJoinCode(cleanCode);
+      handleAutoJoin(cleanCode);
+    } else if (isOpen && !initialCode && mode === 'waiting' && !currentRoom) {
+      setMode('options');
+    }
+  }, [isOpen, initialCode, handleAutoJoin]);
 
   // Polling para sincronização periódica da sala enquanto estiver em espera
   const refreshRoom = useCallback(async (roomId: string) => {
@@ -205,18 +227,24 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     }
   };
 
-  // 5. Ação: Sair da Sala
+  // 5. Ação: Sair Realmente da Sala (Chamado apenas ao clicar em "Sair da Sala")
   const handleLeaveRoom = async () => {
-    if (isLoading) return;
     const targetRoomId = currentRoom?.id || pendingRoomId;
-    if (targetRoomId) {
-      await leaveRoom(targetRoomId);
-    }
     if (pollingRef.current) clearInterval(pollingRef.current);
+
     setCurrentRoom(null);
     setPendingRoomId(null);
     setErrorMessage(null);
     setMode('options');
+
+    if (targetRoomId) {
+      try {
+        await leaveRoom(targetRoomId);
+      } catch {
+        // Silencia falhas no encerramento da sala
+      }
+    }
+    onClose();
   };
 
   const copyCodeToClipboard = () => {
@@ -229,17 +257,26 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   if (!isOpen) return null;
 
   const isHost = currentRoom?.host_id === currentUserId;
-  const myMember = currentRoom?.members.find((m) => m.user_id === currentUserId);
+  const hostMember = currentRoom?.members.find((m) => m.user_id === currentRoom?.host_id);
   const guestMember = currentRoom?.members.find((m) => m.user_id !== currentRoom?.host_id);
-  const canStartMatch = isHost && (currentRoom?.members.length || 0) >= 2;
+  const myMember = currentRoom?.members.find((m) => m.user_id === currentUserId);
+
+  const playerMembers = currentRoom?.members.filter((m) => m.role === 'player') || [];
+  const allPlayersReady = playerMembers.length >= 2 && playerMembers.every((m) => m.is_ready);
+  const canStartMatch = isHost && playerMembers.length >= 2 && allPlayersReady;
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose(); // Minimiza sem sair da sala
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
     >
-      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-5 sm:p-6">
+      <div className="relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-5 sm:p-6 cursor-default">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
           <div className="flex items-center gap-2">
@@ -249,14 +286,20 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
             </h2>
           </div>
           <button
-            onClick={() => {
-              if (mode === 'waiting') handleLeaveRoom();
-              onClose();
-            }}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            aria-label="Fechar"
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+            title={mode === 'waiting' ? 'Minimizar Sala de Espera (manter ativa)' : 'Fechar'}
+            aria-label={mode === 'waiting' ? 'Minimizar Sala de Espera' : 'Fechar'}
           >
-            <X className="w-5 h-5" />
+            {mode === 'waiting' ? (
+              <>
+                <span className="text-[11px] font-bold text-blue-400 hidden sm:inline">Minimizar</span>
+                <Minimize2 className="w-4 h-4 text-blue-400" />
+              </>
+            ) : (
+              <X className="w-5 h-5" />
+            )}
           </button>
         </div>
 
@@ -407,8 +450,8 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                       </div>
                       <div>
                         <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <span>{currentRoom.members[0]?.display_name || 'Anfitrião'}</span>
-                          {currentRoom.members[0]?.user_id === currentUserId && (
+                          <span>{hostMember?.display_name || currentRoom.members[0]?.display_name || 'Anfitrião'}</span>
+                          {hostMember?.user_id === currentUserId && (
                             <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
                           )}
                           <Crown className="w-3 h-3 text-amber-400 shrink-0" />
@@ -416,8 +459,20 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                         <div className="text-[10px] text-slate-400">Slot 1 · Host</div>
                       </div>
                     </div>
-                    <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
-                      <UserCheck className="w-3.5 h-3.5" /> Pronto
+                    <span
+                      className={`text-[11px] font-bold flex items-center gap-1 ${
+                        hostMember?.is_ready !== false ? 'text-emerald-400' : 'text-amber-400'
+                      }`}
+                    >
+                      {hostMember?.is_ready !== false ? (
+                        <>
+                          <UserCheck className="w-3.5 h-3.5" /> Pronto
+                        </>
+                      ) : (
+                        <>
+                          <UserX className="w-3.5 h-3.5" /> Preparando...
+                        </>
+                      )}
                     </span>
                   </div>
 
@@ -463,8 +518,38 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                   )}
                 </div>
 
+                {/* Mensagem de Alerta de Prontidão quando há 2 jogadores e nem todos estão prontos */}
+                {playerMembers.length >= 2 && !allPlayersReady && (
+                  <div className="p-3.5 rounded-xl bg-amber-950/70 border border-amber-800/80 text-amber-200 text-xs flex items-center gap-2.5 animate-in fade-in">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div>
+                      <span className="font-bold block text-amber-300">Aguardando Prontidão de Todos</span>
+                      <span className="text-[11px] text-amber-200/90">
+                        {!guestMember?.is_ready && hostMember?.is_ready === false
+                          ? 'Nenhum dos dois jogadores confirmou "Pronto". Ambos precisam confirmar antes de iniciar.'
+                          : !guestMember?.is_ready
+                          ? `Aguardando ${guestMember?.display_name || 'o segundo jogador'} clicar em "Estou Pronto para Jogar!".`
+                          : `Aguardando o anfitrião (${hostMember?.display_name || 'Host'}) confirmar prontidão.`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action buttons */}
                 <div className="pt-2 flex flex-col gap-2">
+                  {/* Botão de prontidão individual para qualquer jogador se não estiver pronto */}
+                  {myMember && !myMember.is_ready && (
+                    <button
+                      type="button"
+                      onClick={handleToggleReady}
+                      disabled={isLoading}
+                      className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-900/30 transition-all flex items-center justify-center gap-2"
+                    >
+                      {isLoading && <RotateCw className="w-4 h-4 animate-spin" />}
+                      <span>Confirmar Minha Prontidão ("Estou Pronto!")</span>
+                    </button>
+                  )}
+
                   {isHost ? (
                     <button
                       onClick={handleStartMatch}
@@ -472,7 +557,13 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                       className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
                     >
                       {isLoading ? <RotateCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                      <span>{canStartMatch ? 'Iniciar Partida Agora' : 'Aguardando 2º Jogador'}</span>
+                      <span>
+                        {canStartMatch
+                          ? 'Iniciar Partida Agora'
+                          : playerMembers.length >= 2
+                          ? 'Aguardando Prontidão dos Jogadores'
+                          : 'Aguardando 2º Jogador'}
+                      </span>
                     </button>
                   ) : (
                     <button

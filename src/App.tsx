@@ -38,6 +38,7 @@ import { usePresenceHeartbeat } from '@/hooks/usePresenceHeartbeat';
 import { useChat } from '@/hooks/useChat';
 import { ReceivedGameInviteModal } from '@/components/social/ReceivedGameInviteModal';
 import { ChatModal } from '@/components/chat/ChatModal';
+import { useActiveWaitingRoom } from '@/hooks/useActiveWaitingRoom';
 import type { Friend } from '@/types/social';
 
 function MainApp() {
@@ -61,6 +62,9 @@ function MainApp() {
 
   // Convites de Partida em Tempo Real (Fase 14.2)
   const { activeInvite, accept: acceptGameInviteAction, decline: declineGameInviteAction } = useGameInvites();
+
+  // Monitoramento de Sala de Espera Ativa
+  const { activeRoom, leaveActiveWaitingRoom, refreshActiveRoom } = useActiveWaitingRoom();
 
   // Recovery & Abandonment State
   const [recoveryMatchInfo, setRecoveryMatchInfo] = useState<ActiveMatchInfo | null>(null);
@@ -312,7 +316,61 @@ function MainApp() {
         unreadChatCount={chat.totalUnreadCount}
         hasActiveMatch={Boolean(recoveryMatchInfo)}
         onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
+        activeWaitingRoomCode={activeRoom?.code}
+        onOpenActiveWaitingRoom={() => {
+          if (activeRoom?.code) {
+            setInitialRoomCode(activeRoom.code);
+            setIsLobbyOpen(true);
+          }
+        }}
       />
+
+      {/* Banner de Sala de Espera Ativa (Evita salas esquecidas) */}
+      {activeRoom && !activeMatchId && !isLobbyOpen && (
+        <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-950 border-b border-emerald-500/40 px-4 py-2.5 text-white animate-in slide-in-from-top duration-300">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3 w-3 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <div className="text-left">
+                <div className="font-bold text-xs sm:text-sm flex items-center gap-2">
+                  <span>Sala de Espera Ativa</span>
+                  <span className="font-mono bg-emerald-950 border border-emerald-500/50 text-emerald-300 px-2 py-0.5 rounded text-xs font-black tracking-wider">
+                    #{activeRoom.code}
+                  </span>
+                  <span className="text-[11px] text-emerald-400/90 font-normal">
+                    ({activeRoom.members.length}/2 {activeRoom.members.length === 1 ? 'jogador' : 'jogadores'})
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 hidden sm:block">
+                  Você está participando de uma sala ativa. Volte para a sala ou saia para liberar o espaço.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setInitialRoomCode(activeRoom.code);
+                  setIsLobbyOpen(true);
+                }}
+                className="grow sm:grow-0 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md shadow-emerald-900/40 transition-all flex items-center justify-center gap-1.5"
+              >
+                <span>Voltar para a Sala</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => leaveActiveWaitingRoom()}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium text-xs border border-slate-700 transition-all"
+              >
+                Sair da Sala
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="grow">
@@ -361,6 +419,7 @@ function MainApp() {
         onClose={() => {
           setIsLobbyOpen(false);
           setInitialRoomCode(null);
+          refreshActiveRoom();
         }}
         onMatchStarted={handleStartMatch}
       />

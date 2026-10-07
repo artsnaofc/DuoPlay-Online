@@ -23,6 +23,8 @@ export interface HeaderProps {
   unreadChatCount?: number;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
+  activeWaitingRoomCode?: string | null;
+  onOpenActiveWaitingRoom?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,6 +37,8 @@ export const Header: React.FC<HeaderProps> = ({
   unreadChatCount = 0,
   hasActiveMatch,
   onResumeActiveMatch,
+  activeWaitingRoomCode,
+  onOpenActiveWaitingRoom,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -109,6 +113,21 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <span className="w-2 h-2 rounded-full bg-amber-400" />
                   <span>Partida Ativa</span>
+                </button>
+              ) : activeWaitingRoomCode && onOpenActiveWaitingRoom ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenActiveWaitingRoom();
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold text-emerald-300 hover:text-emerald-200 bg-emerald-950/50 border border-emerald-700/60 rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-emerald-400 whitespace-nowrap shadow-sm shadow-emerald-900/30"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span>Sala de Espera (#{activeWaitingRoomCode})</span>
                 </button>
               ) : (
                 <button
@@ -267,6 +286,21 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                 <span>Continuar Partida Ativa</span>
+              </button>
+            ) : activeWaitingRoomCode && onOpenActiveWaitingRoom ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenActiveWaitingRoom();
+                }}
+                className="w-full text-left py-2 px-3 text-xs font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-700/50 rounded-lg flex items-center gap-2"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>Sala de Espera Ativa (#{activeWaitingRoomCode})</span>
               </button>
             ) : (
               <button

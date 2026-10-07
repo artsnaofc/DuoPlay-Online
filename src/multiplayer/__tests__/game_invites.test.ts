@@ -179,6 +179,42 @@ describe('Fase 14.2: Convites de Partida entre Amigos + Sala de Espera', () => {
       assert.strictEqual(result.error, 'Esta sala já atingiu a capacidade máxima de jogadores.');
     });
 
+    it('8a. acceptGameInvite rejeita quando não é o destinatário (UNAUTHORIZED)', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).rpc = async () => ({
+        data: null,
+        error: { message: 'P0001: UNAUTHORIZED: Você não é o destinatário deste convite.' },
+      });
+
+      const result = await acceptGameInvite('inv-other-user');
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.code, 'SESSION_EXPIRED');
+      assert.strictEqual(result.error, 'Sua sessão expirou. Entre novamente.');
+    });
+
+    it('8b. acceptGameInvite trata idempotência e usuário já membro sem campo is_connected', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).rpc = async () => ({
+        data: {
+          success: true,
+          data: {
+            invite: { id: 'inv-123', status: 'accepted' },
+            room: { id: 'room-1', code: 'DUO123', status: 'waiting' },
+            member: { id: 'mem-2', role: 'player', slot_number: 2, is_ready: false },
+            idempotent: true,
+          },
+          error: null,
+        },
+        error: null,
+      });
+
+      const result = await acceptGameInvite('inv-123');
+      assert.strictEqual(result.success, true);
+      assert.ok(result.data?.member);
+      // Garantir que a estrutura do membro segue a especificação sem is_connected
+      assert.strictEqual('is_connected' in (result.data?.member as Record<string, unknown>), false);
+    });
+
     it('9. declineGameInvite recusa convite com sucesso', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).rpc = async (rpcName: string, params: any) => {
