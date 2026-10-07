@@ -32,6 +32,9 @@ import {
 } from '@/services/matchHistory';
 import { getMyMatchmakingStatus } from '@/services/matchmaking';
 import { createRoom } from '@/services/rooms';
+import { createGameInvite } from '@/services/invites';
+import { useGameInvites } from '@/hooks/useGameInvites';
+import { ReceivedGameInviteModal } from '@/components/social/ReceivedGameInviteModal';
 import type { Friend } from '@/types/social';
 
 function MainApp() {
@@ -45,6 +48,9 @@ function MainApp() {
   const [isFriendsOpen, setIsFriendsOpen] = useState(false);
   const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
+
+  // Convites de Partida em Tempo Real (Fase 14.2)
+  const { activeInvite, accept: acceptGameInviteAction, decline: declineGameInviteAction } = useGameInvites();
 
   // Recovery & Abandonment State
   const [recoveryMatchInfo, setRecoveryMatchInfo] = useState<ActiveMatchInfo | null>(null);
@@ -232,7 +238,12 @@ function MainApp() {
     setIsFriendsOpen(false);
     try {
       const result = await createRoom('tic_tac_toe', `Duelo contra ${friend.display_name}`);
-      if (result.success && result.data?.room?.code) {
+      if (result.success && result.data?.room?.id && result.data?.room?.code) {
+        // Envia automaticamente o convite direto para o amigo selecionado
+        await createGameInvite(friend.friend_id, result.data.room.id);
+        setInitialRoomCode(result.data.room.code);
+        setIsLobbyOpen(true);
+      } else if (result.success && result.data?.room?.code) {
         setInitialRoomCode(result.data.room.code);
         setIsLobbyOpen(true);
       } else {
@@ -241,6 +252,20 @@ function MainApp() {
     } catch {
       setIsLobbyOpen(true);
     }
+  };
+
+  const handleAcceptInvite = async (inviteId: string) => {
+    const res = await acceptGameInviteAction(inviteId);
+    if (res.success && res.data?.room?.code) {
+      setInitialRoomCode(res.data.room.code);
+      setIsLobbyOpen(true);
+      return { success: true };
+    }
+    return { success: false, error: res.error };
+  };
+
+  const handleDeclineInvite = async (inviteId: string) => {
+    return await declineGameInviteAction(inviteId);
   };
 
   const handlePlayWithPlayerId = async () => {
@@ -418,6 +443,13 @@ function MainApp() {
         isLoading={isAbandoning}
         onCancel={() => setIsAbandonConfirmOpen(false)}
         onConfirm={handleConfirmAbandonFromRecovery}
+      />
+
+      {/* Modal de Convite de Partida Recebido em Tempo Real (Fase 14.2) */}
+      <ReceivedGameInviteModal
+        invite={activeInvite}
+        onAccept={handleAcceptInvite}
+        onDecline={handleDeclineInvite}
       />
     </div>
   );

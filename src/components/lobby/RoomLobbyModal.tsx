@@ -22,6 +22,7 @@ import {
   UserX,
   ArrowLeft,
   RefreshCw,
+  UserPlus,
 } from 'lucide-react';
 import {
   createRoom,
@@ -33,6 +34,7 @@ import {
   RoomWithMembers,
 } from '@/services/rooms';
 import { useAuth } from '@/hooks/useAuth';
+import { InviteFriendsToRoomModal } from '@/components/social/InviteFriendsToRoomModal';
 
 interface RoomLobbyModalProps {
   isOpen: boolean;
@@ -57,6 +59,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isInviteFriendsOpen, setIsInviteFriendsOpen] = useState(false);
 
   const pollingRef = useRef<number | null>(null);
 
@@ -354,8 +357,8 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
             {/* Caso 1: Sala carregada com sucesso */}
             {currentRoom && (
               <div className="space-y-5">
-                {/* Room Code Card */}
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-2">
+                {/* Room Code Card & Invite Actions */}
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-3">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Código para convidar amigo:
                   </span>
@@ -373,8 +376,20 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    {copied ? 'Código copiado para a área de transferência!' : 'Compartilhe este código com quem vai jogar'}
+                    {copied ? 'Código copiado para a área de transferência!' : 'Compartilhe este código ou convide diretamente'}
                   </p>
+
+                  {/* Botão de convite direto para amigos */}
+                  {isHost && !guestMember && (
+                    <button
+                      type="button"
+                      onClick={() => setIsInviteFriendsOpen(true)}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600/30 to-purple-600/30 hover:from-blue-600/40 hover:to-purple-600/40 border border-blue-500/40 text-blue-200 font-bold text-xs transition-all flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      <UserPlus className="w-4 h-4 text-blue-400" />
+                      <span>Convidar Amigos da Lista</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Players list */}
@@ -527,6 +542,16 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
               </div>
             )}
           </>
+        )}
+        {/* Submodal de Convite Direto para Amigos */}
+        {currentRoom && (
+          <InviteFriendsToRoomModal
+            isOpen={isInviteFriendsOpen}
+            roomId={currentRoom.id}
+            roomCode={currentRoom.code}
+            currentRoom={currentRoom}
+            onClose={() => setIsInviteFriendsOpen(false)}
+          />
         )}
       </div>
     </div>

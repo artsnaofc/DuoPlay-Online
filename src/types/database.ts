@@ -308,11 +308,104 @@ export type Database = {
           }
         ];
       };
+      game_invites: {
+        Row: {
+          id: string;
+          sender_id: string;
+          receiver_id: string;
+          room_id: string;
+          game_id: string;
+          status: 'pending' | 'accepted' | 'declined' | 'expired' | 'cancelled';
+          created_at: string;
+          expires_at: string;
+          responded_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          sender_id: string;
+          receiver_id: string;
+          room_id: string;
+          game_id: string;
+          status?: 'pending' | 'accepted' | 'declined' | 'expired' | 'cancelled';
+          created_at?: string;
+          expires_at?: string;
+          responded_at?: string | null;
+        };
+        Update: {
+          status?: 'pending' | 'accepted' | 'declined' | 'expired' | 'cancelled';
+          responded_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'game_invites_sender_id_fkey';
+            columns: ['sender_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'game_invites_receiver_id_fkey';
+            columns: ['receiver_id'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'game_invites_room_id_fkey';
+            columns: ['room_id'];
+            isOneToOne: false;
+            referencedRelation: 'rooms';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'game_invites_game_id_fkey';
+            columns: ['game_id'];
+            isOneToOne: false;
+            referencedRelation: 'games';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
+      create_game_invite: {
+        Args: {
+          p_receiver_id: string;
+          p_room_id: string;
+        };
+        Returns: Json;
+      };
+      accept_game_invite: {
+        Args: {
+          p_invite_id: string;
+        };
+        Returns: Json;
+      };
+      decline_game_invite: {
+        Args: {
+          p_invite_id: string;
+        };
+        Returns: Json;
+      };
+      cancel_game_invite: {
+        Args: {
+          p_invite_id: string;
+        };
+        Returns: Json;
+      };
+      get_pending_received_invites: {
+        Args: Record<string, never>;
+        Returns: Json;
+      };
+      get_room_invites: {
+        Args: {
+          p_room_id: string;
+        };
+        Returns: Json;
+      };
       create_room: {
         Args: {
           p_game_id: string;
