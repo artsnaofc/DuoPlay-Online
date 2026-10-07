@@ -63,6 +63,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   const [isInviteFriendsOpen, setIsInviteFriendsOpen] = useState(false);
 
   const pollingRef = useRef<number | null>(null);
+  const lastLoadedCodeRef = useRef<string | null>(null);
 
   // Limpar erro ao mudar de modo
   const changeMode = (newMode: 'options' | 'join' | 'waiting') => {
@@ -118,14 +119,22 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   // Se receber código inicial via prop, carrega e abre a sala de espera diretamente
   useEffect(() => {
-    if (isOpen && initialCode && initialCode.trim()) {
+    if (!isOpen) {
+      lastLoadedCodeRef.current = null;
+      return;
+    }
+
+    if (initialCode && initialCode.trim()) {
       const cleanCode = initialCode.trim().toUpperCase();
-      setJoinCode(cleanCode);
-      handleAutoJoin(cleanCode);
-    } else if (isOpen && !initialCode && mode === 'waiting' && !currentRoom) {
+      if (lastLoadedCodeRef.current !== cleanCode) {
+        lastLoadedCodeRef.current = cleanCode;
+        setJoinCode(cleanCode);
+        handleAutoJoin(cleanCode);
+      }
+    } else if (mode === 'waiting' && !currentRoom) {
       setMode('options');
     }
-  }, [isOpen, initialCode, handleAutoJoin]);
+  }, [isOpen, initialCode, handleAutoJoin, mode, currentRoom]);
 
   // Polling para sincronização periódica da sala enquanto estiver em espera
   const refreshRoom = useCallback(async (roomId: string) => {

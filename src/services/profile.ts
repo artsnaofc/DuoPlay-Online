@@ -210,7 +210,7 @@ export async function fetchPublicProfile(userId: string): Promise<ProfileOperati
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select('id, username, display_name, avatar_url, total_matches, total_wins, total_draws, total_losses, current_streak, best_streak, rating, xp, level, created_at')
       .eq('id', userId)
       .maybeSingle();
 
