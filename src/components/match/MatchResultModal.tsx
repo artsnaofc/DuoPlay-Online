@@ -206,6 +206,29 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           </div>
         </div>
 
+        {/* XP & Progression Rewards Banner */}
+        <div className="flex items-center justify-around p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-center">
+          <div className="space-y-0.5">
+            <span className="text-[10px] font-bold text-slate-400 uppercase block">XP Recompensa</span>
+            <span className="text-sm font-extrabold text-amber-400 font-mono">
+              {isWinner ? '+100 XP' : isDraw ? '+40 XP' : '+20 XP'}
+            </span>
+          </div>
+
+          <div className="w-px h-8 bg-slate-800" />
+
+          <div className="space-y-0.5">
+            <span className="text-[10px] font-bold text-slate-400 uppercase block">Ajuste Rating</span>
+            <span
+              className={`text-sm font-extrabold font-mono ${
+                isWinner ? 'text-emerald-400' : isDraw ? 'text-slate-400' : 'text-red-400'
+              }`}
+            >
+              {isWinner ? '+25 Rating' : isDraw ? '0 Rating' : '-15 Rating'}
+            </span>
+          </div>
+        </div>
+
         {/* Players Summary Section */}
         <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs">
           <div className="space-y-1">

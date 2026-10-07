@@ -6,7 +6,7 @@
 // ============================================================================
 
 import React, { useState } from 'react';
-import { Menu, X, Gamepad2, LogIn, Swords, History, Users, MessageSquare } from 'lucide-react';
+import { Menu, X, Gamepad2, LogIn, Swords, History, Users, MessageSquare, Trophy } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { UserMenu } from './auth/UserMenu';
 import { AuthModal } from './auth/AuthModal';
@@ -22,6 +22,7 @@ export interface HeaderProps {
   onOpenProfile?: () => void;
   onOpenFriends?: () => void;
   onOpenChat?: () => void;
+  onOpenLeaderboard?: () => void;
   unreadChatCount?: number;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
@@ -46,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenProfile,
   onOpenFriends,
   onOpenChat,
+  onOpenLeaderboard,
   unreadChatCount = 0,
   hasActiveMatch,
   onResumeActiveMatch,
@@ -198,6 +200,20 @@ export const Header: React.FC<HeaderProps> = ({
                       {unreadChatCount}
                     </span>
                   )}
+                </button>
+              )}
+
+              {onOpenLeaderboard && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenLeaderboard();
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-amber-300 hover:text-amber-200 hover:bg-amber-950/30 rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-2 focus-visible:outline-amber-400 whitespace-nowrap"
+                >
+                  <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Ranking</span>
                 </button>
               )}
 
@@ -407,6 +423,20 @@ export const Header: React.FC<HeaderProps> = ({
                     {unreadChatCount}
                   </span>
                 )}
+              </button>
+            )}
+
+            {onOpenLeaderboard && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenLeaderboard();
+                }}
+                className="w-full text-left py-2 px-3 text-xs font-semibold text-amber-300 rounded-lg flex items-center gap-2 hover:bg-slate-900"
+              >
+                <Trophy className="w-4 h-4 text-amber-400" />
+                <span>Classificação & Ranking</span>
               </button>
             )}
 

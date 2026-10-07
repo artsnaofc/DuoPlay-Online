@@ -18,6 +18,11 @@ export interface PlayerProfile {
   totalDraws: number;
   totalLosses: number;
   winRate: number;
+  currentStreak: number;
+  bestStreak: number;
+  rating: number;
+  xp: number;
+  level: number;
   createdAt: string;
 }
 
@@ -31,6 +36,11 @@ export interface PublicPlayerProfile {
   totalDraws: number;
   totalLosses: number;
   winRate: number;
+  currentStreak: number;
+  bestStreak: number;
+  rating: number;
+  xp: number;
+  level: number;
   createdAt: string;
 }
 
@@ -99,6 +109,8 @@ export function mapRowToPlayerProfile(row: ProfileRow): PlayerProfile {
   const matches = row.total_matches || 0;
   const wins = row.total_wins || 0;
   const winRate = matches > 0 ? Math.round((wins / matches) * 100) : 0;
+  const xp = row.xp || 0;
+  const level = row.level || Math.max(1, 1 + Math.floor(xp / 200));
 
   return {
     id: row.id,
@@ -110,6 +122,11 @@ export function mapRowToPlayerProfile(row: ProfileRow): PlayerProfile {
     totalDraws: row.total_draws || 0,
     totalLosses: row.total_losses || 0,
     winRate,
+    currentStreak: row.current_streak || 0,
+    bestStreak: row.best_streak || 0,
+    rating: row.rating !== undefined ? row.rating : 1000,
+    xp,
+    level,
     createdAt: row.created_at,
   };
 }
@@ -193,7 +210,7 @@ export async function fetchPublicProfile(userId: string): Promise<ProfileOperati
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, username, display_name, avatar_url, total_matches, total_wins, total_draws, total_losses, created_at')
+      .select('*')
       .eq('id', userId)
       .maybeSingle();
 

@@ -19,9 +19,12 @@ import {
   ShieldCheck,
   Percent,
   Sparkles,
+  Zap,
+  Flame,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { PlayerAvatar } from './PlayerAvatar';
+import { calculateLevelProgress } from '@/services/stats';
 import {
   updateMyProfile,
   PRESET_AVATARS,
@@ -108,6 +111,11 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({
         totalDraws: 0,
         totalLosses: 0,
         winRate: 0,
+        currentStreak: 0,
+        bestStreak: 0,
+        rating: 1000,
+        xp: 0,
+        level: 1,
         createdAt: user.created_at || new Date().toISOString(),
       };
 
@@ -226,6 +234,65 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({
               >
                 <Edit3 className="w-4 h-4" />
               </button>
+            </div>
+
+            {/* Level & Progression Bar */}
+            {(() => {
+              const levelProgress = calculateLevelProgress(currentProfile.xp);
+              return (
+                <div className="p-4 rounded-xl bg-slate-950/80 border border-indigo-500/20 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <div className="flex items-center gap-2 text-indigo-300">
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <span>Nível {levelProgress.level}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        ({currentProfile.xp} XP total)
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono text-slate-300">
+                      {levelProgress.xpInCurrentLevel} / {levelProgress.xpForNextLevel} XP
+                    </span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                    <div
+                      className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-amber-400 rounded-full transition-all duration-500"
+                      style={{ width: `${levelProgress.progressPercentage}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Rating & Streaks Bar */}
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
+                <span className="text-[10px] font-bold text-amber-400 uppercase block flex items-center justify-center gap-1">
+                  <Zap className="w-3 h-3 text-amber-400" /> Rating
+                </span>
+                <span className="text-lg font-black text-amber-300 font-mono tabular-nums">
+                  {currentProfile.rating}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-center">
+                <span className="text-[10px] font-bold text-orange-400 uppercase block flex items-center justify-center gap-1">
+                  <Flame className="w-3 h-3 text-orange-400" /> Sequência
+                </span>
+                <span className="text-lg font-black text-orange-300 font-mono tabular-nums">
+                  {currentProfile.currentStreak}x
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-center">
+                <span className="text-[10px] font-bold text-purple-400 uppercase block flex items-center justify-center gap-1">
+                  <Flame className="w-3 h-3 text-purple-400" /> Recorde
+                </span>
+                <span className="text-lg font-black text-purple-300 font-mono tabular-nums">
+                  {currentProfile.bestStreak}x
+                </span>
+              </div>
             </div>
 
             {/* Official Statistics Grid */}

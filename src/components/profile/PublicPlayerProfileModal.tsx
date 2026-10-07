@@ -239,6 +239,28 @@ export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> =
               </div>
             </div>
 
+            {/* Level & Streaks Bar */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-center">
+                <span className="text-[10px] font-bold text-indigo-300 uppercase block">Nível</span>
+                <span className="text-base font-black text-indigo-200 font-mono tabular-nums">
+                  {profile.level || 1}
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
+                <span className="text-[10px] font-bold text-amber-400 uppercase block">Rating</span>
+                <span className="text-base font-black text-amber-300 font-mono tabular-nums">
+                  {profile.rating || 1000}
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-center">
+                <span className="text-[10px] font-bold text-orange-400 uppercase block">Sequência</span>
+                <span className="text-base font-black text-orange-300 font-mono tabular-nums">
+                  {profile.currentStreak || 0}x
+                </span>
+              </div>
+            </div>
+
             {/* Public Statistics */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-slate-300 uppercase tracking-wider">

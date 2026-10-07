@@ -20,6 +20,7 @@ import { MatchResultModal } from '@/components/match/MatchResultModal';
 import { MatchHistoryModal } from '@/components/history/MatchHistoryModal';
 import { PlayerProfileModal } from '@/components/profile/PlayerProfileModal';
 import { PublicPlayerProfileModal } from '@/components/profile/PublicPlayerProfileModal';
+import { LeaderboardModal } from '@/components/leaderboard/LeaderboardModal';
 import { FriendsModal } from '@/components/social/FriendsModal';
 import {
   getActiveMatchForCurrentUser,
@@ -52,6 +53,7 @@ function MainApp() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState(false);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
 
@@ -365,6 +367,7 @@ function MainApp() {
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenFriends={() => setIsFriendsOpen(true)}
         onOpenChat={() => setIsChatOpen(true)}
+        onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
         unreadChatCount={chat.totalUnreadCount}
         hasActiveMatch={Boolean(recoveryMatchInfo)}
         onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
@@ -567,6 +570,17 @@ function MainApp() {
         onOpenHistory={() => {
           setIsProfileOpen(false);
           setIsHistoryOpen(true);
+        }}
+      />
+
+      {/* Modal de Classificação e Ranking Geral (Fase 17) */}
+      <LeaderboardModal
+        isOpen={isLeaderboardOpen}
+        onClose={() => setIsLeaderboardOpen(false)}
+        currentUserId={user?.id}
+        onSelectPlayer={(userId) => {
+          setIsLeaderboardOpen(false);
+          setViewingPublicUserId(userId);
         }}
       />
 

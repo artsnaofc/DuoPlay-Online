@@ -15,8 +15,47 @@ export type ProfileRow = {
   total_wins: number;
   total_draws: number;
   total_losses: number;
+  current_streak?: number;
+  best_streak?: number;
+  rating?: number;
+  xp?: number;
+  level?: number;
   created_at: string;
   updated_at: string;
+};
+
+export type UserGameStatsRow = {
+  user_id: string;
+  game_id: string;
+  total_matches: number;
+  total_wins: number;
+  total_draws: number;
+  total_losses: number;
+  current_streak: number;
+  best_streak: number;
+  rating: number;
+  xp: number;
+  level: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LeaderboardRow = {
+  rank: number;
+  user_id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  level: number;
+  xp: number;
+  rating: number;
+  total_matches: number;
+  total_wins: number;
+  total_draws: number;
+  total_losses: number;
+  win_rate: number;
+  current_streak: number;
+  best_streak: number;
 };
 
 export type ProfileInsert = {
@@ -457,6 +496,21 @@ export type Database = {
           p_reason: string;
           p_winner_id?: string | null;
           p_is_draw?: boolean;
+        };
+        Returns: Json;
+      };
+      get_leaderboard: {
+        Args: {
+          p_game_id?: string | null;
+          p_limit?: number;
+          p_offset?: number;
+        };
+        Returns: Json;
+      };
+      get_player_stats: {
+        Args: {
+          p_user_id: string;
+          p_game_id?: string | null;
         };
         Returns: Json;
       };
