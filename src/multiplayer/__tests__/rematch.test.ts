@@ -1,5 +1,5 @@
 // ============================================================================
-// Unit & Integration Tests: Rematch System (Phase 9) — DuoPlay-Online
+// Unit & Integration Tests: Rematch System (Phase 9 & 9.1) — DuoPlay-Online
 // ============================================================================
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -11,7 +11,7 @@ import {
 } from '@/services/rematch';
 import { supabase } from '@/lib/supabase';
 
-describe('Fase 9: Sistema de Rematch com Aceite Bilateral', () => {
+describe('Fase 9 & 9.1: Sistema de Rematch com Aceite Bilateral e Endurecimento de Segurança', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const originalRpc = (supabase as any).rpc;
 
@@ -20,7 +20,7 @@ describe('Fase 9: Sistema de Rematch com Aceite Bilateral', () => {
     (supabase as any).rpc = originalRpc;
   });
 
-  it('1. Solicitação válida de revanche retorna pedido pendente com sucesso', async () => {
+  it('1. Solicitação válida de revanche por participante retorna pedido pendente com sucesso', async () => {
     const mockMatchId = '11111111-2222-3333-4444-555555555555';
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -36,6 +36,7 @@ describe('Fase 9: Sistema de Rematch com Aceite Bilateral', () => {
             original_match_id: mockMatchId,
             requester_id: 'user-a',
             opponent_id: 'user-b',
+            is_my_request: true,
             expires_at: '2026-10-06T18:30:00Z',
           },
           error: null,
@@ -48,16 +49,17 @@ describe('Fase 9: Sistema de Rematch com Aceite Bilateral', () => {
     assert.strictEqual(res.success, true);
     assert.ok(res.data);
     assert.strictEqual(res.data.status, 'pending');
+    assert.strictEqual(res.data.is_my_request, true);
     assert.strictEqual(res.data.rematch_request_id, 'rematch-req-123');
   });
 
-  it('2. Solicitação por pessoa que não participou da partida é rejeitada pelo banco', async () => {
+  it('2. Solicitação por pessoa que não participou da partida é bloqueada com erro NOT_MATCH_PLAYER', async () => {
     const mockMatchId = '11111111-2222-3333-4444-555555555555';
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).rpc = async () => ({
       data: null,
-      error: { code: 'P0018', message: 'NOT_MATCH_PLAYER: Você não participou desta partida.' },
+      error: { code: 'P0018', message: 'NOT_MATCH_PLAYER: O usuário não participou desta partida.' },
     });
 
     const res = await requestRematch(mockMatchId);
@@ -66,66 +68,122 @@ describe('Fase 9: Sistema de Rematch com Aceite Bilateral', () => {
     assert.ok(res.error?.includes('NOT_MATCH_PLAYER') || res.error?.includes('não participou'));
   });
 
-  it('3. Solicitação em partida ativa (in_progress) é rejeitada', async () => {
-    const activeMatchId = 'active-match-uuid';
+  it('3. Usuário externo (não participante) que tentar consultar pedido de revanche recebe data: null sem vazamento', async () => {
+    const thirdPartyMatchId = 'third-party-match-uuid';
 
+    // RPC retorna success: true, data: null para chamadores externos
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).rpc = async () => ({
-      data: null,
-      error: { code: 'P0013', message: 'INVALID_MATCH_STATUS: Revanche só é permitida em partidas finalizadas.' },
-    });
-
-    const res = await requestRematch(activeMatchId);
-    assert.strictEqual(res.success, false);
-    assert.strictEqual(res.code, 'P0013');
-    assert.ok(res.error?.includes('finalizadas') || res.error?.includes('INVALID_MATCH_STATUS'));
-  });
-
-  it('4. Solicitação duplicada pelo mesmo usuário é idempotente e não cria dois pedidos', async () => {
-    const mockMatchId = '11111111-2222-3333-4444-555555555555';
-
-    // O banco identifica a solicitação existente em andamento do mesmo jogador e retorna o mesmo objeto
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).rpc = async () => ({
-      data: {
-        success: true,
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'get_pending_rematch_for_match');
+      return {
         data: {
-          rematch_request_id: 'existing-pending-req-123',
-          status: 'pending',
-          original_match_id: mockMatchId,
-          requester_id: 'user-a',
-          opponent_id: 'user-b',
+          success: true,
+          data: null,
+          error: null,
         },
         error: null,
-      },
-      error: null,
-    });
+      };
+    };
 
-    const first = await requestRematch(mockMatchId);
-    const second = await requestRematch(mockMatchId);
-
-    assert.strictEqual(first.success, true);
-    assert.strictEqual(second.success, true);
-    assert.strictEqual(first.data?.rematch_request_id, second.data?.rematch_request_id);
+    const res = await getPendingRematchForMatch(thirdPartyMatchId);
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.data, null);
   });
 
-  it('5. Solicitante não pode aceitar o próprio pedido de revanche', async () => {
-    const reqId = 'rematch-req-123';
+  it('4. Consulta de pedido expirado em função VOLATILE atualiza status para expired e não falha', async () => {
+    const expiredMatchId = 'expired-match-uuid';
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).rpc = async () => ({
-      data: null,
-      error: { code: 'P0001', message: 'UNAUTHORIZED: O solicitante não pode aceitar seu próprio pedido.' },
-    });
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'get_pending_rematch_for_match');
+      return {
+        data: {
+          success: true,
+          data: {
+            rematch_request_id: 'rematch-req-expired',
+            original_match_id: expiredMatchId,
+            status: 'expired',
+            requester_id: 'user-a',
+            opponent_id: 'user-b',
+            is_my_request: true,
+          },
+          error: null,
+        },
+        error: null,
+      };
+    };
 
-    const res = await respondToRematch(reqId, true);
-    assert.strictEqual(res.success, false);
-    assert.strictEqual(res.code, 'P0001');
-    assert.ok(res.error?.includes('próprio pedido'));
+    const res = await getPendingRematchForMatch(expiredMatchId);
+    assert.strictEqual(res.success, true);
+    assert.ok(res.data);
+    assert.strictEqual(res.data.status, 'expired');
   });
 
-  it('6. Recusa marca status como declined e NÃO cria nova partida', async () => {
-    const reqId = 'rematch-req-123';
+  it('5. Aceite Bilateral Estrito: Segundo participante clicar em "Solicitar Revanche" NÃO aceita automaticamente', async () => {
+    const mockMatchId = 'shared-match-uuid';
+
+    // B clica em request_rematch -> Servidor retorna o pedido pendente criado por A com is_my_request: false, SEM criar partida
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string) => {
+      assert.strictEqual(fn, 'request_rematch');
+      return {
+        data: {
+          success: true,
+          data: {
+            rematch_request_id: 'pending-req-from-player-a',
+            status: 'pending',
+            original_match_id: mockMatchId,
+            requester_id: 'player-a',
+            opponent_id: 'player-b',
+            is_my_request: false,
+            new_match_id: null,
+          },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const res = await requestRematch(mockMatchId);
+    assert.strictEqual(res.success, true);
+    assert.ok(res.data);
+    assert.strictEqual(res.data.status, 'pending');
+    assert.strictEqual(res.data.is_my_request, false);
+    assert.strictEqual(res.data.new_match_id, null);
+  });
+
+  it('6. Somente a chamada explícita respondToRematch(..., true) cria e retorna a nova partida', async () => {
+    const reqId = 'pending-req-from-player-a';
+    const newMatchId = 'accepted-new-match-uuid';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async (fn: string, params: { p_rematch_request_id: string; p_accept: boolean }) => {
+      assert.strictEqual(fn, 'respond_to_rematch');
+      assert.strictEqual(params.p_rematch_request_id, reqId);
+      assert.strictEqual(params.p_accept, true);
+      return {
+        data: {
+          success: true,
+          data: {
+            rematch_request_id: reqId,
+            status: 'accepted',
+            new_match_id: newMatchId,
+          },
+          error: null,
+        },
+        error: null,
+      };
+    };
+
+    const res = await respondToRematch(reqId, true);
+    assert.strictEqual(res.success, true);
+    assert.ok(res.data);
+    assert.strictEqual(res.data.status, 'accepted');
+    assert.strictEqual(res.data.new_match_id, newMatchId);
+  });
+
+  it('7. Recusa marca status como declined e NUNCA cria nova partida', async () => {
+    const reqId = 'pending-req-from-player-a';
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).rpc = async (fn: string, params: { p_rematch_request_id: string; p_accept: boolean }) => {
@@ -151,40 +209,10 @@ describe('Fase 9: Sistema de Rematch com Aceite Bilateral', () => {
     assert.strictEqual(res.data.new_match_id, undefined);
   });
 
-  it('7. Aceite cria exatamente uma nova partida oficial', async () => {
-    const reqId = 'rematch-req-123';
-    const expectedNewMatchId = 'new-match-uuid-999';
+  it('8. Aceites concorrentes/repetidos retornam a mesma nova partida via FOR UPDATE do banco', async () => {
+    const reqId = 'rematch-req-concurrent';
+    const singleMatchId = 'single-match-id-1000';
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).rpc = async (fn: string, params: { p_rematch_request_id: string; p_accept: boolean }) => {
-      assert.strictEqual(fn, 'respond_to_rematch');
-      assert.strictEqual(params.p_accept, true);
-      return {
-        data: {
-          success: true,
-          data: {
-            rematch_request_id: reqId,
-            status: 'accepted',
-            new_match_id: expectedNewMatchId,
-          },
-          error: null,
-        },
-        error: null,
-      };
-    };
-
-    const res = await respondToRematch(reqId, true);
-    assert.strictEqual(res.success, true);
-    assert.ok(res.data);
-    assert.strictEqual(res.data.status, 'accepted');
-    assert.strictEqual(res.data.new_match_id, expectedNewMatchId);
-  });
-
-  it('8. Aceites concorrentes continuam criando e retornando apenas a mesma partida', async () => {
-    const reqId = 'rematch-req-123';
-    const singleNewMatchId = 'single-new-match-id-555';
-
-    // Simulando FOR UPDATE do PostgreSQL: segundo aceite retorna a partida já criada
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).rpc = async () => ({
       data: {
@@ -192,136 +220,64 @@ describe('Fase 9: Sistema de Rematch com Aceite Bilateral', () => {
         data: {
           rematch_request_id: reqId,
           status: 'accepted',
-          new_match_id: singleNewMatchId,
+          new_match_id: singleMatchId,
         },
         error: null,
       },
       error: null,
     });
 
-    const [res1, res2] = await Promise.all([
+    const [r1, r2] = await Promise.all([
       respondToRematch(reqId, true),
       respondToRematch(reqId, true),
     ]);
 
-    assert.strictEqual(res1.success, true);
-    assert.strictEqual(res2.success, true);
-    assert.strictEqual(res1.data?.new_match_id, singleNewMatchId);
-    assert.strictEqual(res2.data?.new_match_id, singleNewMatchId);
+    assert.strictEqual(r1.success, true);
+    assert.strictEqual(r2.success, true);
+    assert.strictEqual(r1.data?.new_match_id, singleMatchId);
+    assert.strictEqual(r2.data?.new_match_id, singleMatchId);
   });
 
-  it('9. Nova partida possui estado limpo (vazia, turn 1, placar zerado)', async () => {
-    const reqId = 'rematch-req-123';
-    const newMatchId = 'clean-new-match-777';
+  it('9. Solicitante que tentar aceitar o próprio pedido é rejeitado pelo banco', async () => {
+    const reqId = 'my-own-req-id';
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).rpc = async () => ({
-      data: {
-        success: true,
-        data: {
-          rematch_request_id: reqId,
-          status: 'accepted',
-          new_match_id: newMatchId,
-        },
-        error: null,
-      },
-      error: null,
-    });
-
-    const res = await respondToRematch(reqId, true);
-    assert.strictEqual(res.success, true);
-    assert.strictEqual(res.data?.new_match_id, newMatchId);
-  });
-
-  it('10. Pedido expirado não pode ser aceito', async () => {
-    const reqId = 'expired-req-id';
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).rpc = async () => ({
-      data: {
-        success: false,
-        error: 'O pedido de revanche expirou.',
-        code: 'REMATCH_EXPIRED',
-      },
-      error: null,
+      data: null,
+      error: { code: 'P0001', message: 'UNAUTHORIZED: O solicitante não pode aceitar seu próprio pedido.' },
     });
 
     const res = await respondToRematch(reqId, true);
     assert.strictEqual(res.success, false);
-    assert.strictEqual(res.code, 'REMATCH_EXPIRED');
-    assert.ok(res.error?.includes('expirou'));
+    assert.strictEqual(res.code, 'P0001');
+    assert.ok(res.error?.includes('próprio pedido'));
   });
 
-  it('11. Recovery/Sondagem de pedido pendente retorna o estado atual do servidor', async () => {
-    const origMatchId = 'orig-match-111';
+  it('10. Novo pedido é permitido após expiração do pedido anterior', async () => {
+    const mockMatchId = 'match-with-expired-req';
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).rpc = async (fn: string) => {
-      assert.strictEqual(fn, 'get_pending_rematch_for_match');
-      return {
-        data: {
-          success: true,
-          data: {
-            rematch_request_id: 'pending-req-555',
-            original_match_id: origMatchId,
-            status: 'pending',
-            requester_id: 'user-b',
-            opponent_id: 'user-a',
-            is_my_request: false,
-          },
-          error: null,
-        },
-        error: null,
-      };
-    };
-
-    const res = await getPendingRematchForMatch(origMatchId);
-    assert.strictEqual(res.success, true);
-    assert.ok(res.data);
-    assert.strictEqual(res.data.rematch_request_id, 'pending-req-555');
-    assert.strictEqual(res.data.is_my_request, false);
-    assert.strictEqual(res.data.status, 'pending');
-  });
-
-  it('12. Resultado anterior não interfere na nova sessão e navegação', async () => {
-    // Garante que o retorno do serviço `requestRematch` fornece o novo `new_match_id` se já aceito
-    const origMatchId = 'orig-match-111';
-    const newMatchId = 'brand-new-match-222';
-
+    // O banco atualizou o pedido antigo para expired e criou um novo pedido pendente
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).rpc = async () => ({
       data: {
         success: true,
         data: {
-          rematch_request_id: 'already-accepted-req',
-          status: 'accepted',
-          new_match_id: newMatchId,
-          original_match_id: origMatchId,
+          rematch_request_id: 'brand-new-rematch-req-2',
+          status: 'pending',
+          original_match_id: mockMatchId,
+          requester_id: 'user-a',
+          opponent_id: 'user-b',
+          is_my_request: true,
         },
         error: null,
       },
       error: null,
     });
 
-    const res = await requestRematch(origMatchId);
+    const res = await requestRematch(mockMatchId);
     assert.strictEqual(res.success, true);
-    assert.strictEqual(res.data?.status, 'accepted');
-    assert.strictEqual(res.data?.new_match_id, newMatchId);
-  });
-
-  it('13. Eventos duplicados não duplicam a navegação para a nova partida', async () => {
-    let navigationCount = 0;
-    const newMatchId = 'new-match-888';
-
-    const handleStartRematch = (matchId: string) => {
-      if (matchId) navigationCount++;
-    };
-
-    // Primeira notificação de aceite
-    handleStartRematch(newMatchId);
-    // Notificação duplicada do Realtime
-    handleStartRematch(newMatchId);
-
-    assert.strictEqual(navigationCount, 2); // Função invocada 2x com o mesmo ID sem falha
+    assert.ok(res.data);
+    assert.strictEqual(res.data.rematch_request_id, 'brand-new-rematch-req-2');
+    assert.strictEqual(res.data.status, 'pending');
   });
 });

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Sparkles, Smartphone, ShieldCheck, Users, Zap, KeyRound, Gamepad2, UserPlus } from 'lucide-react';
+import { ArrowRight, Sparkles, Smartphone, ShieldCheck, Users, Zap, KeyRound, Gamepad2, UserPlus, Swords } from 'lucide-react';
 import { GameCard } from '@/components/GameCard';
 import { GameItem, PlatformFeature, HowItWorksStep } from '@/types/platform';
 import { useAuth } from '@/hooks/useAuth';
@@ -114,18 +114,33 @@ const HOW_IT_WORKS: HowItWorksStep[] = [
 export interface HomePageProps {
   onPlayGame?: (gameId: string) => void;
   onOpenLobby?: () => void;
+  onOpenMatchmaking?: () => void;
 }
 
-export const HomePage: React.FC<HomePageProps> = ({ onPlayGame, onOpenLobby }) => {
+export const HomePage: React.FC<HomePageProps> = ({ onPlayGame, onOpenLobby, onOpenMatchmaking }) => {
   const { isAuthenticated } = useAuth();
   const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const handleQuickPlay = () => {
+    if (!isAuthenticated) {
+      setAuthModalOpen(true);
+      return;
+    }
+    if (onOpenMatchmaking) {
+      onOpenMatchmaking();
+    } else if (onOpenLobby) {
+      onOpenLobby();
+    }
+  };
 
   const handleGamePlay = (gameId: string) => {
     if (!isAuthenticated) {
       setAuthModalOpen(true);
       return;
     }
-    if (onPlayGame) {
+    if (gameId === 'tic-tac-toe' && onOpenMatchmaking) {
+      onOpenMatchmaking();
+    } else if (onPlayGame) {
       onPlayGame(gameId);
     } else if (onOpenLobby) {
       onOpenLobby();
@@ -162,18 +177,20 @@ export const HomePage: React.FC<HomePageProps> = ({ onPlayGame, onOpenLobby }) =
           </p>
 
           <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={handleQuickPlay}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-extrabold shadow-lg shadow-blue-950/50 transition-all focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
+            >
+              <Swords className="w-4 h-4" />
+              <span>Jogar Partida Rápida</span>
+            </button>
             <a
               href="#games"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-blue-900/20 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs sm:text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
             >
               <span>Explorar Jogos</span>
               <ArrowRight className="w-4 h-4" />
-            </a>
-            <a
-              href="#how-it-works"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs sm:text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
-            >
-              <span>Como Funciona</span>
             </a>
           </div>
 

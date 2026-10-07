@@ -1,10 +1,11 @@
 -- ============================================================================
 -- Migration: 20261008080000_create_rematch_system.sql
 -- Project: DuoPlay-Online
--- Phase: Fase 9 — Rematch com Aceite Bilateral
+-- Phase: Fase 9.1 — Correção de Segurança da Migration de Rematch
 -- Description: Tabela de solicitações de revanche e 3 RPCs autoritativas
 --              (request_rematch, respond_to_rematch, get_pending_rematch_for_match)
---              com suporte a concorrência, idempotência e expiração.
+--              com suporte a concorrência, índice único parcial para pending,
+--              bloqueio a terceiros e função VOLATILE para atualização de expiração.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -33,6 +34,11 @@ CREATE INDEX IF NOT EXISTS idx_rematch_requests_requester ON public.rematch_requ
 CREATE INDEX IF NOT EXISTS idx_rematch_requests_opponent ON public.rematch_requests (opponent_id);
 CREATE INDEX IF NOT EXISTS idx_rematch_requests_status ON public.rematch_requests (status);
 
+-- Proteção de concorrência no banco: no máximo um pedido pendente por partida original
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rematch_requests_pending_unique 
+ON public.rematch_requests (original_match_id) 
+WHERE status = 'pending';
+
 -- Row Level Security (RLS)
 ALTER TABLE public.rematch_requests ENABLE ROW LEVEL SECURITY;
 
@@ -54,7 +60,6 @@ END $$;
 
 -- ----------------------------------------------------------------------------
 -- 2. RPC: respond_to_rematch(p_rematch_request_id, p_accept)
---    (Criada primeiro para permitir chamada interna no request_rematch)
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.respond_to_rematch(
     p_rematch_request_id UUID,
@@ -162,7 +167,7 @@ BEGIN
         );
     END IF;
 
-    -- Tratar aceite: criar nova partida limpa com os mesmos participantes
+    -- Tratar aceite explícito: criar nova partida limpa com os mesmos participantes
     SELECT user_id INTO v_slot1_user_id
     FROM public.match_players
     WHERE match_id = v_req.original_match_id AND slot = 1;
@@ -267,7 +272,15 @@ BEGIN
         RAISE EXCEPTION 'UNAUTHORIZED: Usuário não autenticado.' USING ERRCODE = 'P0001';
     END IF;
 
-    -- Travar e verificar a partida original
+    -- 1. Validar EXPLICITAMENTE que auth.uid() participou da partida original
+    IF NOT EXISTS (
+        SELECT 1 FROM public.match_players
+        WHERE match_id = p_original_match_id AND user_id = v_caller_id
+    ) THEN
+        RAISE EXCEPTION 'NOT_MATCH_PLAYER: O usuário não participou desta partida.' USING ERRCODE = 'P0018';
+    END IF;
+
+    -- 2. Travar e verificar a partida original
     SELECT * INTO v_orig_match
     FROM public.matches
     WHERE id = p_original_match_id
@@ -281,17 +294,17 @@ BEGIN
         RAISE EXCEPTION 'INVALID_MATCH_STATUS: Revanche só é permitida em partidas finalizadas.' USING ERRCODE = 'P0013';
     END IF;
 
-    -- Localizar oponente na partida original
+    -- 3. Localizar oponente na partida original
     SELECT user_id INTO v_opponent_id
     FROM public.match_players
     WHERE match_id = p_original_match_id AND user_id != v_caller_id
     LIMIT 1;
 
     IF v_opponent_id IS NULL THEN
-        RAISE EXCEPTION 'NOT_MATCH_PLAYER: Você não participou desta partida ou não há oponente.' USING ERRCODE = 'P0018';
+        RAISE EXCEPTION 'NOT_MATCH_PLAYER: Oponente não encontrado nesta partida.' USING ERRCODE = 'P0018';
     END IF;
 
-    -- Checar se já existe um pedido ativo de revanche para esta partida
+    -- 4. Checar se já existe um pedido ativo de revanche para esta partida
     SELECT * INTO v_existing_req
     FROM public.rematch_requests
     WHERE original_match_id = p_original_match_id
@@ -300,12 +313,8 @@ BEGIN
     LIMIT 1;
 
     IF FOUND THEN
-        -- Caso tenha expirado
-        IF v_existing_req.status = 'pending' AND clock_timestamp() > v_existing_req.expires_at THEN
-            UPDATE public.rematch_requests
-            SET status = 'expired', updated_at = clock_timestamp()
-            WHERE id = v_existing_req.id;
-        ELSIF v_existing_req.status = 'accepted' THEN
+        -- Caso tenha sido aceito anteriormente
+        IF v_existing_req.status = 'accepted' THEN
             RETURN jsonb_build_object(
                 'success', true,
                 'data', jsonb_build_object(
@@ -317,8 +326,14 @@ BEGIN
                 'error', null
             );
         ELSIF v_existing_req.status = 'pending' THEN
-            -- Se eu já solicitei, retorno meu pedido pendente existente (idempotência)
-            IF v_existing_req.requester_id = v_caller_id THEN
+            -- Caso o pedido tenha expirado
+            IF clock_timestamp() > v_existing_req.expires_at THEN
+                UPDATE public.rematch_requests
+                SET status = 'expired', updated_at = clock_timestamp()
+                WHERE id = v_existing_req.id;
+            ELSE
+                -- Aceite Bilateral Estrito: Se já existe um pedido pendente (seja meu ou do oponente),
+                -- RETORNA OS DADOS DO PEDIDO PENDENTE sem criar partida nem aceitar automaticamente.
                 RETURN jsonb_build_object(
                     'success', true,
                     'data', jsonb_build_object(
@@ -327,19 +342,16 @@ BEGIN
                         'original_match_id', p_original_match_id,
                         'requester_id', v_existing_req.requester_id,
                         'opponent_id', v_existing_req.opponent_id,
+                        'is_my_request', (v_existing_req.requester_id = v_caller_id),
                         'expires_at', v_existing_req.expires_at
                     ),
                     'error', null
                 );
-            ELSE
-                -- O oponente já havia solicitado a revanche antes!
-                -- Aceita automaticamente e cria a nova partida de revanche
-                RETURN public.respond_to_rematch(v_existing_req.id, true);
             END IF;
         END IF;
     END IF;
 
-    -- Criar novo registro de solicitação de revanche
+    -- 5. Criar novo registro de solicitação de revanche
     INSERT INTO public.rematch_requests (
         original_match_id,
         game_id,
@@ -371,6 +383,7 @@ BEGIN
             'original_match_id', p_original_match_id,
             'requester_id', v_caller_id,
             'opponent_id', v_opponent_id,
+            'is_my_request', true,
             'expires_at', v_req.expires_at
         ),
         'error', null
@@ -383,6 +396,7 @@ GRANT EXECUTE ON FUNCTION public.request_rematch(UUID) TO authenticated;
 
 -- ----------------------------------------------------------------------------
 -- 4. RPC: get_pending_rematch_for_match(p_original_match_id)
+--    Declarada como VOLATILE pois pode atualizar o status para 'expired'.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_pending_rematch_for_match(
     p_original_match_id UUID
@@ -390,7 +404,7 @@ CREATE OR REPLACE FUNCTION public.get_pending_rematch_for_match(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-STABLE
+VOLATILE
 SET search_path = public, pg_temp
 AS $$
 DECLARE
@@ -399,12 +413,14 @@ DECLARE
 BEGIN
     v_caller_id := auth.uid();
     IF v_caller_id IS NULL THEN
-        RAISE EXCEPTION 'UNAUTHORIZED: Usuário não autenticado.' USING ERRCODE = 'P0001';
+        RETURN jsonb_build_object('success', true, 'data', null, 'error', null);
     END IF;
 
+    -- Filtro de segurança: apenas os dois participantes da partida podem consultar
     SELECT * INTO v_req
     FROM public.rematch_requests
     WHERE original_match_id = p_original_match_id
+      AND (requester_id = v_caller_id OR opponent_id = v_caller_id)
       AND status IN ('pending', 'accepted', 'declined')
     ORDER BY created_at DESC
     LIMIT 1;
@@ -413,7 +429,7 @@ BEGIN
         RETURN jsonb_build_object('success', true, 'data', null, 'error', null);
     END IF;
 
-    -- Se pendente mas expirado
+    -- Se pendente mas expirado, atualiza autoritativamente para expired
     IF v_req.status = 'pending' AND clock_timestamp() > v_req.expires_at THEN
         UPDATE public.rematch_requests
         SET status = 'expired', updated_at = clock_timestamp()
