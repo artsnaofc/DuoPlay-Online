@@ -49,18 +49,22 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
     try {
       const res = await getMyMatchmakingStatus();
       if (res.success && res.data) {
-        setQueueInfo(res.data);
-        setErrorMsg(null);
+        if (res.data.status === 'completed' || res.data.status === 'cancelled') {
+          setQueueInfo(null);
+        } else {
+          setQueueInfo(res.data);
+          setErrorMsg(null);
 
-        // Se o usuário foi pareado com sucesso
-        if (
-          res.data.status === 'matched' &&
-          res.data.match_id &&
-          navigatedMatchIdRef.current !== res.data.match_id
-        ) {
-          navigatedMatchIdRef.current = res.data.match_id;
-          onMatchFound(res.data.match_id);
-          onClose();
+          // Se o usuário foi pareado com sucesso
+          if (
+            res.data.status === 'matched' &&
+            res.data.match_id &&
+            navigatedMatchIdRef.current !== res.data.match_id
+          ) {
+            navigatedMatchIdRef.current = res.data.match_id;
+            onMatchFound(res.data.match_id);
+            onClose();
+          }
         }
       } else if (res.success && res.data === null) {
         setQueueInfo(null);

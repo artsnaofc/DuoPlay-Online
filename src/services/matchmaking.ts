@@ -11,7 +11,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 export interface MatchmakingQueueInfo {
   queue_id?: string;
   game_id?: string;
-  status: 'waiting' | 'matched' | 'cancelled' | 'expired';
+  status: 'waiting' | 'matched' | 'cancelled' | 'expired' | 'completed';
   match_id?: string | null;
   expires_at?: string;
   created_at?: string;
