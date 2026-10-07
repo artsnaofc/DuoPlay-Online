@@ -30,6 +30,13 @@ export function clearChatCache(): void {
   };
 }
 
+export function logChatDiagnostic(event: string, details: Record<string, unknown>): void {
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
+    return;
+  }
+  console.log(`[CHAT_DIAGNOSTIC] [${event}] ${new Date().toISOString()}`, details);
+}
+
 export function translateChatError(error: unknown): { message: string; code: string } {
   if (!error || typeof error !== 'object') {
     return { message: 'Ocorreu um erro inesperado na conversa. Tente novamente.', code: 'UNKNOWN_ERROR' };

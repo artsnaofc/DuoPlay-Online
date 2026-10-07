@@ -56,15 +56,30 @@ export const ChatModal: React.FC<ChatModalProps> = ({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Rolagem suave para o fim ao receber novas mensagens
+  // Rolagem para o fim respeitando a posição do usuário ao ler histórico
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
+  const prevConvIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (activeConversation && messages.length > 0) {
-      // Se acabou de abrir a conversa ou enviou mensagem, rola para o fim
+    if (!activeConversation || messages.length === 0) return;
+
+    const isNewConv = prevConvIdRef.current !== activeConversation.conversation_id;
+    prevConvIdRef.current = activeConversation.conversation_id;
+
+    const container = messagesContainerRef.current;
+    if (!container) {
       scrollToBottom('auto');
+      return;
+    }
+
+    const isNearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+
+    if (isNewConv || isNearBottom) {
+      scrollToBottom(isNewConv ? 'auto' : 'smooth');
     }
   }, [activeConversation?.conversation_id, messages.length]);
 

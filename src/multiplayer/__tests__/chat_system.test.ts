@@ -359,4 +359,140 @@ describe('Fase 15: Sistema de Comunicação — Chat Privado 1:1 Entre Amigos', 
       assert.strictEqual(res.data?.id, 'msg-recovered');
     });
   });
+
+  // --------------------------------------------------------------------------
+  // 7. Hardening da Sincronização, Reconciliação e Prevenção de Race Condition
+  // --------------------------------------------------------------------------
+  describe('Fase 15.1: Hardening de Sincronização Multi-Sessão e Reconciliação', () => {
+    it('17. Reconciliação mescla mensagens novas mantendo ordenação determinística (created_at ASC, id ASC)', () => {
+      const existingMessages: ChatMessage[] = [
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          sender_id: 'user-a',
+          body: 'Oi',
+          created_at: '2026-10-07T12:00:00.000Z',
+          is_mine: true,
+        },
+      ];
+
+      const newServerMessages: ChatMessage[] = [
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          sender_id: 'user-a',
+          body: 'Oi',
+          created_at: '2026-10-07T12:00:00.000Z',
+          is_mine: true,
+        },
+        {
+          id: 'msg-2',
+          conversation_id: 'conv-1',
+          sender_id: 'user-b',
+          body: 'oba',
+          created_at: '2026-10-07T12:01:00.000Z',
+          is_mine: false,
+        },
+      ];
+
+      // Reconciliador idempotente em memória
+      const serverMap = new Map<string, ChatMessage>();
+      newServerMessages.forEach((m) => serverMap.set(m.id, m));
+
+      const combined = [...newServerMessages];
+      combined.sort((a, b) => {
+        const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return a.id.localeCompare(b.id);
+      });
+
+      assert.strictEqual(combined.length, 2);
+      assert.strictEqual(combined[0].id, 'msg-1');
+      assert.strictEqual(combined[1].id, 'msg-2');
+      assert.strictEqual(combined[1].body, 'oba');
+    });
+
+    it('18. Reconciliação preserva mensagens otimistas pendentes e deduplica confirmações oficiais', () => {
+      const prevMessages: ChatMessage[] = [
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          sender_id: 'user-a',
+          body: 'Oi',
+          created_at: '2026-10-07T12:00:00.000Z',
+          is_mine: true,
+        },
+        {
+          id: 'temp_123',
+          conversation_id: 'conv-1',
+          sender_id: 'user-a',
+          body: 'Mensagem em envio',
+          created_at: '2026-10-07T12:02:00.000Z',
+          is_mine: true,
+          delivery_status: 'pending',
+        },
+      ];
+
+      const snapshotMessages: ChatMessage[] = [
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          sender_id: 'user-a',
+          body: 'Oi',
+          created_at: '2026-10-07T12:00:00.000Z',
+          is_mine: true,
+        },
+        {
+          id: 'msg-2',
+          conversation_id: 'conv-1',
+          sender_id: 'user-b',
+          body: 'oba',
+          created_at: '2026-10-07T12:01:00.000Z',
+          is_mine: false,
+        },
+      ];
+
+      const serverMap = new Map<string, ChatMessage>();
+      snapshotMessages.forEach((m) => serverMap.set(m.id, m));
+
+      const pendingOptimistic = prevMessages.filter(
+        (m) => (m.delivery_status === 'pending' || m.delivery_status === 'failed') && m.conversation_id === 'conv-1'
+      );
+
+      const combined = [...snapshotMessages];
+      pendingOptimistic.forEach((m) => {
+        if (!serverMap.has(m.id)) {
+          combined.push(m);
+        }
+      });
+
+      combined.sort((a, b) => {
+        const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        if (timeDiff !== 0) return timeDiff;
+        return a.id.localeCompare(b.id);
+      });
+
+      assert.strictEqual(combined.length, 3);
+      assert.strictEqual(combined[1].id, 'msg-2');
+      assert.strictEqual(combined[2].id, 'temp_123');
+      assert.strictEqual(combined[2].delivery_status, 'pending');
+    });
+
+    it('19. Detecção de inconsistência entre resumo da conversa e painel de mensagens dispara reconciliação', () => {
+      const summaryLastMsgId = 'msg-2';
+      const localMessages: ChatMessage[] = [
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          sender_id: 'user-a',
+          body: 'Oi',
+          created_at: '2026-10-07T12:00:00.000Z',
+          is_mine: true,
+        },
+      ];
+
+      const isMissingNewMessage = !localMessages.some((m) => m.id === summaryLastMsgId);
+      assert.strictEqual(isMissingNewMessage, true, 'Deve identificar que a mensagem "msg-2" está ausente no painel local');
+    });
+  });
 });

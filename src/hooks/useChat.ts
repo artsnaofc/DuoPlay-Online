@@ -1,8 +1,9 @@
 // ============================================================================
 // React Hook: useChat — DuoPlay-Online
-// Phase: Fase 15 — Comunicação Entre Jogadores (Chat Privado 1:1 Entre Amigos)
-// Description: Hook reativo para gerenciamento de conversas, envio/recebimento
-//              em tempo real via Realtime, histórico paginado e contadores de não lidas.
+// Phase: Fase 15.1 — Hardening da Sincronização do Chat (Multi-Sessão & Reconciliação)
+// Description: Hook reativo ultrarrobusto para gerenciamento de conversas e mensagens
+//              com reconciliação idempotente contra PostgreSQL, prevenção de race conditions,
+//              controle de visibilidade, recuperação em reconexão e deduplicação estrita.
 // ============================================================================
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -14,6 +15,7 @@ import {
   sendMessage as sendChatMessage,
   markConversationRead,
   clearChatCache,
+  logChatDiagnostic,
 } from '@/services/chat';
 import type {
   ChatMessage,
@@ -37,6 +39,7 @@ export interface UseChatReturn {
   loadOlderMessages: () => Promise<void>;
   sendMessage: (body: string) => Promise<{ success: boolean; error?: string }>;
   refreshConversations: (force?: boolean) => Promise<void>;
+  reconcileActiveConversation: (origin?: string) => Promise<void>;
 }
 
 export function useChat(): UseChatReturn {
@@ -57,6 +60,12 @@ export function useChat(): UseChatReturn {
   const activeConvRef = useRef<ConversationSummary | null>(null);
   activeConvRef.current = activeConversation;
 
+  const messagesRef = useRef<ChatMessage[]>([]);
+  messagesRef.current = messages;
+
+  // Versão sequencial de requisição para prevencão de race condition entre fetches e Realtime
+  const fetchRequestVersionRef = useRef<number>(0);
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -69,7 +78,80 @@ export function useChat(): UseChatReturn {
     return conversations.reduce((acc, conv) => acc + (conv.unread_count || 0), 0);
   }, [conversations]);
 
-  // Carrega lista de conversas
+  // Função Oficial de Reconciliação com o PostgreSQL (Fonte da Verdade)
+  const reconcileConversationMessages = useCallback(
+    async (conversationId: string, origin = 'manual'): Promise<void> => {
+      if (!conversationId || !isMountedRef.current) return;
+
+      const reqVersion = ++fetchRequestVersionRef.current;
+
+      logChatDiagnostic('CHAT_RECONCILE', {
+        conversationId,
+        origin,
+        currentMessageCount: messagesRef.current.length,
+      });
+
+      try {
+        const res = await getConversationMessages(conversationId, 30);
+        if (!isMountedRef.current || reqVersion !== fetchRequestVersionRef.current) {
+          return;
+        }
+
+        if (res.success && res.data) {
+          const serverMessages = res.data.messages;
+          const serverHasMore = res.data.has_more;
+
+          setHasMoreMessages(serverHasMore);
+
+          setMessages((prev) => {
+            const serverMap = new Map<string, ChatMessage>();
+            serverMessages.forEach((m) => serverMap.set(m.id, m));
+
+            // Preserva mensagens otimistas pendentes que ainda não foram confirmadas pelo servidor
+            const pendingOptimistic = prev.filter(
+              (m) =>
+                (m.delivery_status === 'pending' || m.delivery_status === 'failed') &&
+                m.conversation_id === conversationId
+            );
+
+            const combined = [...serverMessages];
+            pendingOptimistic.forEach((m) => {
+              if (!serverMap.has(m.id)) {
+                combined.push(m);
+              }
+            });
+
+            // Ordenação determinística: created_at ASC, id ASC
+            combined.sort((a, b) => {
+              const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+              if (timeDiff !== 0) return timeDiff;
+              return a.id.localeCompare(b.id);
+            });
+
+            logChatDiagnostic('CHAT_RECONCILE_SUCCESS', {
+              conversationId,
+              origin,
+              beforeCount: prev.length,
+              afterCount: combined.length,
+            });
+
+            return combined;
+          });
+
+          markConversationRead(conversationId).catch(() => {});
+        }
+      } catch (err) {
+        logChatDiagnostic('CHAT_RECONCILE_ERROR', {
+          conversationId,
+          origin,
+          error: String(err),
+        });
+      }
+    },
+    []
+  );
+
+  // Carrega lista de conversas e reconcilia conversa ativa caso haja descompasso
   const fetchConversations = useCallback(
     async (force = false) => {
       if (isAuthLoading || !currentUserId || !isAuthenticated) {
@@ -85,8 +167,39 @@ export function useChat(): UseChatReturn {
         if (!isMountedRef.current) return;
 
         if (res.success && res.data) {
-          setConversations(res.data);
+          const newConversations = res.data;
+          setConversations(newConversations);
           setError(null);
+
+          // VERIFICAÇÃO DE CONSISTÊNCIA ENTRE LISTA LATERAL E PAINEL PRINCIPAL
+          const currentActive = activeConvRef.current;
+          if (currentActive) {
+            const updatedActiveSummary = newConversations.find(
+              (c) => c.conversation_id === currentActive.conversation_id
+            );
+
+            if (updatedActiveSummary) {
+              const lastMsgInSummary = updatedActiveSummary.last_message;
+              const currentMessages = messagesRef.current;
+
+              // Se a lista possui mensagem mais recente que não está presente no painel de mensagens
+              const isMissingNewMessage =
+                lastMsgInSummary &&
+                !currentMessages.some((m) => m.id === lastMsgInSummary.id);
+
+              if (isMissingNewMessage) {
+                logChatDiagnostic('CHAT_INCONSISTENCY_DETECTED', {
+                  conversationId: currentActive.conversation_id,
+                  lastMessageInSummary: lastMsgInSummary?.id,
+                  currentLocalMessageCount: currentMessages.length,
+                });
+                reconcileConversationMessages(
+                  currentActive.conversation_id,
+                  'conversation_summary_mismatch'
+                );
+              }
+            }
+          }
         } else if (res.error) {
           setError(res.error);
         }
@@ -100,7 +213,7 @@ export function useChat(): UseChatReturn {
         }
       }
     },
-    [currentUserId, isAuthenticated, isAuthLoading]
+    [currentUserId, isAuthenticated, isAuthLoading, reconcileConversationMessages]
   );
 
   // Inicialização e limpeza ao alternar usuário
@@ -140,20 +253,13 @@ export function useChat(): UseChatReturn {
         const convData = convRes.data;
         setActiveConversation(convData);
 
-        // Carrega primeiras 30 mensagens
-        const msgRes = await getConversationMessages(convData.conversation_id, 30);
-        if (!isMountedRef.current) return false;
+        logChatDiagnostic('CHAT_OPEN_FRIEND', {
+          friendUserId,
+          conversationId: convData.conversation_id,
+        });
 
-        if (msgRes.success && msgRes.data) {
-          setMessages(msgRes.data.messages);
-          setHasMoreMessages(msgRes.data.has_more);
-        } else {
-          setMessages([]);
-          setHasMoreMessages(false);
-        }
-
-        // Marca como lida no backend
-        markConversationRead(convData.conversation_id).catch(() => {});
+        // Reconcilia diretamente do PostgreSQL
+        await reconcileConversationMessages(convData.conversation_id, 'open_friend');
 
         // Atualiza contagem local de não lidas para essa conversa
         setConversations((prev) =>
@@ -174,7 +280,7 @@ export function useChat(): UseChatReturn {
         }
       }
     },
-    [currentUserId, isAuthenticated]
+    [currentUserId, isAuthenticated, reconcileConversationMessages]
   );
 
   // Abre conversa através do conversation_id existente
@@ -191,19 +297,10 @@ export function useChat(): UseChatReturn {
       setError(null);
       setActiveConversation(target);
 
+      logChatDiagnostic('CHAT_OPEN_BY_ID', { conversationId });
+
       try {
-        const msgRes = await getConversationMessages(conversationId, 30);
-        if (!isMountedRef.current) return false;
-
-        if (msgRes.success && msgRes.data) {
-          setMessages(msgRes.data.messages);
-          setHasMoreMessages(msgRes.data.has_more);
-        } else {
-          setMessages([]);
-          setHasMoreMessages(false);
-        }
-
-        markConversationRead(conversationId).catch(() => {});
+        await reconcileConversationMessages(conversationId, 'open_by_id');
 
         setConversations((prev) =>
           prev.map((c) =>
@@ -223,11 +320,14 @@ export function useChat(): UseChatReturn {
         }
       }
     },
-    [currentUserId, isAuthenticated, conversations]
+    [currentUserId, isAuthenticated, conversations, reconcileConversationMessages]
   );
 
   // Fecha conversa ativa
   const closeActiveConversation = useCallback(() => {
+    logChatDiagnostic('CHAT_CLOSE_CONVERSATION', {
+      conversationId: activeConvRef.current?.conversation_id,
+    });
     setActiveConversation(null);
     setMessages([]);
     setHasMoreMessages(false);
@@ -258,11 +358,19 @@ export function useChat(): UseChatReturn {
         const older = res.data.messages;
         setHasMoreMessages(res.data.has_more);
 
-        // Deduplica mensagens pelo ID
+        // Deduplica e une mantendo ordem determinística
         setMessages((prev) => {
           const existingIds = new Set(prev.map((m) => m.id));
           const uniqueOlder = older.filter((m) => !existingIds.has(m.id));
-          return [...uniqueOlder, ...prev];
+          const combined = [...uniqueOlder, ...prev];
+
+          combined.sort((a, b) => {
+            const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            if (timeDiff !== 0) return timeDiff;
+            return a.id.localeCompare(b.id);
+          });
+
+          return combined;
         });
       }
     } catch {
@@ -274,7 +382,7 @@ export function useChat(): UseChatReturn {
     }
   }, [activeConversation, isLoadingOlderMessages, hasMoreMessages, messages]);
 
-  // Envio de mensagem com reconciliação e tratamento otimista seguro
+  // Envio de mensagem com reconciliação oficial
   const handleSendMessage = useCallback(
     async (body: string): Promise<{ success: boolean; error?: string }> => {
       if (!activeConversation || !currentUserId) {
@@ -302,34 +410,40 @@ export function useChat(): UseChatReturn {
       // Adiciona temporariamente na UI
       setMessages((prev) => [...prev, tempMessage]);
 
+      logChatDiagnostic('CHAT_MESSAGE_RPC_START', {
+        conversationId: convId,
+        optimisticId,
+      });
+
       const res = await sendChatMessage(convId, trimmed);
 
       if (!isMountedRef.current) return res;
 
       if (res.success && res.data) {
         const officialMsg = res.data;
-        // Substitui mensagem otimista pela oficial do PostgreSQL
-        setMessages((prev) =>
-          prev.map((m) => (m.id === optimisticId ? { ...officialMsg, delivery_status: 'sent' } : m))
-        );
 
-        // Atualiza a prévia de conversa
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.conversation_id === convId
-              ? {
-                  ...c,
-                  last_message_at: officialMsg.created_at,
-                  last_message: {
-                    id: officialMsg.id,
-                    sender_id: officialMsg.sender_id,
-                    body: officialMsg.body,
-                    created_at: officialMsg.created_at,
-                  },
-                }
-              : c
-          )
-        );
+        logChatDiagnostic('CHAT_MESSAGE_RPC_SUCCESS', {
+          conversationId: convId,
+          officialId: officialMsg.id,
+        });
+
+        // Substitui mensagem otimista pela oficial do PostgreSQL
+        setMessages((prev) => {
+          const filtered = prev.filter((m) => m.id !== optimisticId && m.id !== officialMsg.id);
+          const combined: ChatMessage[] = [...filtered, { ...officialMsg, delivery_status: 'sent' as const }];
+
+          combined.sort((a, b) => {
+            const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            if (timeDiff !== 0) return timeDiff;
+            return a.id.localeCompare(b.id);
+          });
+
+          return combined;
+        });
+
+        // Dispara reconciliação leve assíncrona para garantia de consistência total
+        reconcileConversationMessages(convId, 'send_message_confirm');
+        fetchConversations(true);
 
         return { success: true };
       } else {
@@ -342,15 +456,17 @@ export function useChat(): UseChatReturn {
         return { success: false, error: res.error || 'Falha ao enviar mensagem.' };
       }
     },
-    [activeConversation, currentUserId]
+    [activeConversation, currentUserId, fetchConversations, reconcileConversationMessages]
   );
 
-  // Inscrição Realtime global para novas mensagens e atualizações de conversas
+  // Inscrição Realtime global com acompanhamento de ciclo de vida e recuperação
   useEffect(() => {
     if (!isSupabaseConfigured || !currentUserId || !isAuthenticated) return;
 
     const subId = Math.random().toString(36).slice(2, 9) + '_' + Date.now();
     const channelName = `chat_user_${currentUserId}_${subId}`;
+
+    logChatDiagnostic('CHAT_SUBSCRIBE', { channelName, currentUserId });
 
     const channel = supabase
       .channel(channelName)
@@ -374,10 +490,15 @@ export function useChat(): UseChatReturn {
 
           const currentActive = activeConvRef.current;
 
-          // Se a mensagem for da conversa aberta no momento
+          logChatDiagnostic('CHAT_MESSAGE_REALTIME', {
+            newMsgId: newMsgRow.id,
+            conversationId: newMsgRow.conversation_id,
+            activeConversationId: currentActive?.conversation_id,
+          });
+
+          // Se a mensagem for para a conversa atualmente aberta
           if (currentActive && currentActive.conversation_id === newMsgRow.conversation_id) {
             setMessages((prev) => {
-              // Deduplica se já existir
               if (prev.some((m) => m.id === newMsgRow.id)) {
                 return prev;
               }
@@ -388,18 +509,26 @@ export function useChat(): UseChatReturn {
                 body: newMsgRow.body,
                 created_at: newMsgRow.created_at,
                 is_mine: newMsgRow.sender_id === currentUserId,
-                delivery_status: 'sent',
+                delivery_status: 'sent' as const,
               };
-              return [...prev, incomingMsg];
+              const combined = [...prev, incomingMsg];
+              combined.sort((a, b) => {
+                const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+                if (timeDiff !== 0) return timeDiff;
+                return a.id.localeCompare(b.id);
+              });
+
+              return combined;
             });
 
-            // Se a mensagem veio do outro jogador e o chat está aberto, marca como lida
             if (newMsgRow.sender_id !== currentUserId) {
               markConversationRead(newMsgRow.conversation_id).catch(() => {});
             }
+
+            // Garante snapshot completo para sanar potenciais gapped events
+            reconcileConversationMessages(newMsgRow.conversation_id, 'realtime_insert');
           }
 
-          // Atualiza lista de conversas
           fetchConversations(true);
         }
       )
@@ -414,20 +543,93 @@ export function useChat(): UseChatReturn {
           fetchConversations(true);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        logChatDiagnostic('CHAT_CHANNEL_STATUS', { status, channelName });
 
-    // Sincronização periódica da lista de conversas a cada 15s
-    const chatInterval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        if (status === 'SUBSCRIBED') {
+          logChatDiagnostic('CHAT_SUBSCRIBED', { channelName });
+          fetchConversations(true);
+          if (activeConvRef.current) {
+            reconcileConversationMessages(
+              activeConvRef.current.conversation_id,
+              'subscribed_recovery'
+            );
+          }
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+          logChatDiagnostic('CHAT_RECONNECT', { status, channelName });
+        }
+      });
+
+    // Recuperação por visibilitychange, foco da janela e reconexão de rede
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        logChatDiagnostic('CHAT_VISIBILITY_RECOVERY', {
+          activeConvId: activeConvRef.current?.conversation_id,
+        });
         fetchConversations(true);
+        if (activeConvRef.current) {
+          reconcileConversationMessages(
+            activeConvRef.current.conversation_id,
+            'visibility_recovery'
+          );
+        }
       }
-    }, 15_000);
+    };
+
+    const handleWindowFocus = () => {
+      fetchConversations(true);
+      if (activeConvRef.current) {
+        reconcileConversationMessages(
+          activeConvRef.current.conversation_id,
+          'focus_recovery'
+        );
+      }
+    };
+
+    const handleOnline = () => {
+      logChatDiagnostic('CHAT_NETWORK_ONLINE_RECOVERY', {
+        activeConvId: activeConvRef.current?.conversation_id,
+      });
+      fetchConversations(true);
+      if (activeConvRef.current) {
+        reconcileConversationMessages(
+          activeConvRef.current.conversation_id,
+          'online_recovery'
+        );
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('online', handleOnline);
 
     return () => {
-      clearInterval(chatInterval);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('online', handleOnline);
       supabase.removeChannel(channel);
     };
-  }, [currentUserId, isAuthenticated, fetchConversations]);
+  }, [currentUserId, isAuthenticated, fetchConversations, reconcileConversationMessages]);
+
+  // Polling leve de segurança (12 segundos) MENTRE a conversa estiver aberta
+  useEffect(() => {
+    if (!activeConversation) return;
+
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        if (activeConvRef.current) {
+          reconcileConversationMessages(
+            activeConvRef.current.conversation_id,
+            'safety_poll'
+          );
+        }
+      }
+    }, 12_000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [activeConversation?.conversation_id, reconcileConversationMessages]);
 
   return {
     conversations,
@@ -445,5 +647,11 @@ export function useChat(): UseChatReturn {
     loadOlderMessages,
     sendMessage: handleSendMessage,
     refreshConversations: fetchConversations,
+    reconcileActiveConversation: (origin = 'manual') => {
+      if (activeConvRef.current) {
+        return reconcileConversationMessages(activeConvRef.current.conversation_id, origin);
+      }
+      return Promise.resolve();
+    },
   };
 }
