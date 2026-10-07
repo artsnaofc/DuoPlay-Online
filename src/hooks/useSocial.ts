@@ -175,9 +175,28 @@ export function useSocial(): UseSocialReturn {
           fetchSocialState(true);
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_presence',
+        },
+        () => {
+          fetchSocialState(true);
+        }
+      )
       .subscribe();
 
+    // Sincronização periódica da lista e TTL de presença (a cada 15 segundos)
+    const presenceInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchSocialState(true);
+      }
+    }, 15_000);
+
     return () => {
+      clearInterval(presenceInterval);
       supabase.removeChannel(channel);
     };
   }, [currentUserId, isAuthenticated, fetchSocialState]);

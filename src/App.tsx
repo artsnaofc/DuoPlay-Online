@@ -34,6 +34,7 @@ import { getMyMatchmakingStatus } from '@/services/matchmaking';
 import { createRoom } from '@/services/rooms';
 import { createGameInvite } from '@/services/invites';
 import { useGameInvites } from '@/hooks/useGameInvites';
+import { usePresenceHeartbeat } from '@/hooks/usePresenceHeartbeat';
 import { ReceivedGameInviteModal } from '@/components/social/ReceivedGameInviteModal';
 import type { Friend } from '@/types/social';
 
@@ -48,6 +49,9 @@ function MainApp() {
   const [isFriendsOpen, setIsFriendsOpen] = useState(false);
   const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
+
+  // Heartbeat de Presença Global (Fase 14.2 — Lease de Presença)
+  usePresenceHeartbeat();
 
   // Convites de Partida em Tempo Real (Fase 14.2)
   const { activeInvite, accept: acceptGameInviteAction, decline: declineGameInviteAction } = useGameInvites();
