@@ -70,6 +70,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     myPlayer,
     opponentPlayer,
     submitAction,
+    refresh,
     reconnect,
   } = useGameSession<TicTacToeState>(matchId);
 
@@ -108,6 +109,17 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   const isWinner = isFinished && snapshot?.winnerId === currentUserId;
   const isLoser = isFinished && snapshot?.winnerId !== null && snapshot?.winnerId !== currentUserId;
   const isDraw = isFinished && Boolean(snapshot?.isDraw);
+
+  // Verificação periódica automática a cada 4 segundos da presença real do oponente no PostgreSQL
+  useEffect(() => {
+    if (isFinished || !matchId) return;
+
+    const presenceInterval = setInterval(() => {
+      refresh();
+    }, 4000);
+
+    return () => clearInterval(presenceInterval);
+  }, [isFinished, matchId, refresh]);
 
   useEffect(() => {
     if (isFinished) {
@@ -278,22 +290,22 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       {/* Top Header & Status Bar */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-800">
         <div className="flex items-center gap-2">
-          <button
-            onClick={onLeave}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Sair</span>
-          </button>
-
-          {!isFinished && (
+          {!isFinished ? (
             <button
               type="button"
               onClick={() => setIsAbandonModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-900/60 text-xs font-semibold text-red-300 transition-colors focus-visible:outline-2 focus-visible:outline-red-400"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-900/60 text-xs font-semibold text-red-300 transition-colors focus-visible:outline-2 focus-visible:outline-red-400 active:scale-95"
             >
               <Flag className="w-3.5 h-3.5 text-red-400" />
-              <span>Abandonar</span>
+              <span>Abandonar Partida</span>
+            </button>
+          ) : (
+            <button
+              onClick={onLeave}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-semibold text-slate-300 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Voltar para Home</span>
             </button>
           )}
         </div>
