@@ -220,6 +220,7 @@ function MainApp() {
             matchId={activeMatchId}
             onLeave={handleLeaveMatch}
             onViewHistory={() => setIsHistoryOpen(true)}
+            onStartRematch={handleStartMatch}
             onPlayAgain={() => {
               handleLeaveMatch();
               setIsLobbyOpen(true);
@@ -299,6 +300,7 @@ function MainApp() {
             handleDismissCompletedRecovery();
             setIsHistoryOpen(true);
           }}
+          onStartRematch={handleStartMatch}
         />
       )}
 

@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { MatchPlayerSnapshot } from '@/multiplayer/network/types';
+import { RematchControl } from './RematchControl';
 
 export interface MatchResultPlayerInfo {
   gameSymbol?: string | null;
@@ -37,10 +38,12 @@ export interface MatchResultModalProps {
   opponentPlayer?: MatchResultPlayerInfo | null;
   onGoHome: () => void;
   onViewHistory: () => void;
+  onStartRematch?: (newMatchId: string) => void;
 }
 
 export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   isOpen,
+  matchId,
   gameName = 'Jogo da Velha',
   status,
   winnerId,
@@ -51,6 +54,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   opponentPlayer,
   onGoHome,
   onViewHistory,
+  onStartRematch,
 }) => {
   if (!isOpen) return null;
 
@@ -212,6 +216,13 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Rematch Section */}
+        <RematchControl
+          originalMatchId={matchId}
+          currentUserId={currentUserId}
+          onStartRematch={onStartRematch}
+        />
 
         {/* Action Buttons */}
         <div className="pt-2 flex flex-col sm:flex-row gap-3">

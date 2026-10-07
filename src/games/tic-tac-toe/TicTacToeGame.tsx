@@ -33,6 +33,7 @@ interface TicTacToeGameProps {
   onLeave: () => void;
   onViewHistory?: () => void;
   onPlayAgain?: () => void;
+  onStartRematch?: (newMatchId: string) => void;
 }
 
 // 8 combinações clássicas de vitória para derivação visual caso o servidor não envie explicitamente
@@ -57,6 +58,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   onLeave,
   onViewHistory,
   onPlayAgain,
+  onStartRematch,
 }) => {
   const { user } = useAuth();
   const currentUserId = user?.id || null;
@@ -609,6 +611,16 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
             onViewHistory();
           } else {
             onLeave();
+          }
+        }}
+        onStartRematch={(newMatchId) => {
+          if (currentUserId && typeof window !== 'undefined') {
+            const seenKey = `seen_match_result_${currentUserId}_${matchId}`;
+            localStorage.setItem(seenKey, 'true');
+            sessionStorage.setItem(seenKey, 'true');
+          }
+          if (onStartRematch) {
+            onStartRematch(newMatchId);
           }
         }}
       />
