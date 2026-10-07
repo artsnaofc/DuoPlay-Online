@@ -39,6 +39,7 @@ export interface MatchResultModalProps {
   onGoHome: () => void;
   onViewHistory: () => void;
   onStartRematch?: (newMatchId: string) => void;
+  onFindNewOpponent?: () => void;
 }
 
 export const MatchResultModal: React.FC<MatchResultModalProps> = ({
@@ -55,6 +56,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   onGoHome,
   onViewHistory,
   onStartRematch,
+  onFindNewOpponent,
 }) => {
   if (!isOpen) return null;
 
@@ -222,6 +224,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           originalMatchId={matchId}
           currentUserId={currentUserId}
           onStartRematch={onStartRematch}
+          onFindNewOpponent={onFindNewOpponent}
         />
 
         {/* Action Buttons */}

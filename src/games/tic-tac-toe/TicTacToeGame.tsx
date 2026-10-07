@@ -623,6 +623,18 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
             onStartRematch(newMatchId);
           }
         }}
+        onFindNewOpponent={() => {
+          if (isFinished && currentUserId && typeof window !== 'undefined') {
+            const seenKey = `seen_match_result_${currentUserId}_${matchId}`;
+            localStorage.setItem(seenKey, 'true');
+            sessionStorage.setItem(seenKey, 'true');
+          }
+          if (onPlayAgain) {
+            onPlayAgain();
+          } else {
+            onLeave();
+          }
+        }}
       />
 
       {/* Modal de Confirmação de Abandono */}

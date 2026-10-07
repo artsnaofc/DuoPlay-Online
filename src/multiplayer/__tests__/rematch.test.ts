@@ -280,4 +280,99 @@ describe('Fase 9 & 9.1: Sistema de Rematch com Aceite Bilateral e Endurecimento 
     assert.strictEqual(res.data.rematch_request_id, 'brand-new-rematch-req-2');
     assert.strictEqual(res.data.status, 'pending');
   });
+
+  it('11. Oponente indisponível (desconectado ou sem heartbeat > 20s) rejeita revanche com OPPONENT_UNAVAILABLE', async () => {
+    const mockMatchId = 'match-with-offline-opponent';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async () => ({
+      data: {
+        success: false,
+        error: 'O oponente não está mais disponível para revanche.',
+        code: 'OPPONENT_UNAVAILABLE',
+      },
+      error: null,
+    });
+
+    const res = await requestRematch(mockMatchId);
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.code, 'OPPONENT_UNAVAILABLE');
+    assert.ok(res.error?.includes('disponível'));
+  });
+
+  it('12. Tentativa de aceitar revanche quando o solicitante desconectou expira o pedido com OPPONENT_UNAVAILABLE', async () => {
+    const reqId = 'rematch-req-requester-disconnected';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async () => ({
+      data: {
+        success: false,
+        error: 'O solicitante não está mais disponível para a revanche.',
+        code: 'OPPONENT_UNAVAILABLE',
+      },
+      error: null,
+    });
+
+    const res = await respondToRematch(reqId, true);
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.code, 'OPPONENT_UNAVAILABLE');
+    assert.ok(res.error?.includes('solicitante não está mais disponível'));
+  });
+
+  it('13. Concorrência de solicitações: chamadas simultâneas de requestRematch retornam o mesmo pedido sem duplicar', async () => {
+    const mockMatchId = 'concurrent-match-id-555';
+    const singleReqId = 'single-req-id-777';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async () => ({
+      data: {
+        success: true,
+        data: {
+          rematch_request_id: singleReqId,
+          status: 'pending',
+          original_match_id: mockMatchId,
+          requester_id: 'user-a',
+          opponent_id: 'user-b',
+          is_my_request: true,
+          expires_at: '2026-10-06T19:00:30Z',
+        },
+        error: null,
+      },
+      error: null,
+    });
+
+    const [res1, res2] = await Promise.all([
+      requestRematch(mockMatchId),
+      requestRematch(mockMatchId),
+    ]);
+
+    assert.strictEqual(res1.success, true);
+    assert.strictEqual(res2.success, true);
+    assert.strictEqual(res1.data?.rematch_request_id, singleReqId);
+    assert.strictEqual(res2.data?.rematch_request_id, singleReqId);
+  });
+
+  it('14. Expirado por TTL (30s): getPendingRematchForMatch atualiza status para expired', async () => {
+    const expiredMatchId = 'match-id-ttl-expired';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc = async () => ({
+      data: {
+        success: true,
+        data: {
+          rematch_request_id: 'rematch-req-ttl-30s',
+          original_match_id: expiredMatchId,
+          status: 'expired',
+          is_my_request: true,
+        },
+        error: null,
+      },
+      error: null,
+    });
+
+    const res = await getPendingRematchForMatch(expiredMatchId);
+    assert.strictEqual(res.success, true);
+    assert.ok(res.data);
+    assert.strictEqual(res.data.status, 'expired');
+  });
 });

@@ -26,6 +26,7 @@ export interface RematchControlProps {
   originalMatchId: string;
   currentUserId: string | null;
   onStartRematch?: (newMatchId: string) => void;
+  onFindNewOpponent?: () => void;
   className?: string;
 }
 
@@ -33,11 +34,14 @@ export const RematchControl: React.FC<RematchControlProps> = ({
   originalMatchId,
   currentUserId,
   onStartRematch,
+  onFindNewOpponent,
   className = '',
 }) => {
   const [rematchInfo, setRematchInfo] = useState<RematchInfo | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
   // Evita re-disparar o callback de navegação para a mesma nova partida
   const transitionedMatchIdRef = useRef<string | null>(null);
@@ -51,6 +55,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
       if (res.success && res.data) {
         setRematchInfo(res.data);
         setErrorMsg(null);
+        setErrorCode(null);
 
         // Se o pedido foi aceito e há uma nova partida criada
         if (
@@ -72,6 +77,27 @@ export const RematchControl: React.FC<RematchControlProps> = ({
     }
   }, [originalMatchId, onStartRematch]);
 
+  // Cronômetro do TTL da revanche (30s)
+  useEffect(() => {
+    if (rematchInfo?.status !== 'pending' || !rematchInfo.expires_at) {
+      setSecondsLeft(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const expires = new Date(rematchInfo.expires_at!).getTime();
+      const diff = Math.max(0, Math.ceil((expires - Date.now()) / 1000));
+      setSecondsLeft(diff);
+      if (diff === 0) {
+        checkStatus();
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [rematchInfo?.status, rematchInfo?.expires_at, checkStatus]);
+
   // Polling automático a cada 2.5 segundos para atualização em tempo real
   useEffect(() => {
     checkStatus();
@@ -87,6 +113,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
   const handleRequestRematch = async () => {
     setIsLoading(true);
     setErrorMsg(null);
+    setErrorCode(null);
 
     try {
       const res = await requestRematch(originalMatchId);
@@ -104,6 +131,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
         }
       } else {
         setErrorMsg(res.error || 'Não foi possível solicitar revanche.');
+        setErrorCode(res.code || null);
       }
     } catch {
       setErrorMsg('Erro de conexão ao solicitar revanche.');
@@ -118,6 +146,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
 
     setIsLoading(true);
     setErrorMsg(null);
+    setErrorCode(null);
 
     try {
       const res = await respondToRematch(rematchInfo.rematch_request_id, accept);
@@ -136,6 +165,7 @@ export const RematchControl: React.FC<RematchControlProps> = ({
         }
       } else {
         setErrorMsg(res.error || 'Não foi possível responder ao pedido de revanche.');
+        setErrorCode(res.code || null);
       }
     } catch {
       setErrorMsg('Erro de conexão ao responder pedido de revanche.');
@@ -163,6 +193,11 @@ export const RematchControl: React.FC<RematchControlProps> = ({
         <div className="flex items-center justify-center gap-2 font-bold text-blue-300">
           <Clock className="w-4 h-4 animate-pulse text-blue-400" />
           <span>Solicitação de Revanche Enviada</span>
+          {secondsLeft !== null && (
+            <span className="ml-1 px-2 py-0.5 rounded-full bg-blue-900/80 text-[10px] font-mono font-bold text-blue-200">
+              {secondsLeft}s
+            </span>
+          )}
         </div>
         <p className="text-[11px] text-blue-300/80">
           Aguardando a resposta do adversário...
@@ -175,9 +210,16 @@ export const RematchControl: React.FC<RematchControlProps> = ({
   if (rematchInfo?.status === 'pending' && !rematchInfo.is_my_request) {
     return (
       <div className={`p-4 rounded-xl bg-purple-950/70 border border-purple-800 text-purple-100 text-xs space-y-3 animate-fade-in ${className}`}>
-        <div className="flex items-center gap-2 font-bold text-purple-200">
-          <Swords className="w-4 h-4 text-purple-400 shrink-0" />
-          <span>O adversário pediu uma revanche!</span>
+        <div className="flex items-center justify-between font-bold text-purple-200">
+          <div className="flex items-center gap-2">
+            <Swords className="w-4 h-4 text-purple-400 shrink-0" />
+            <span>O adversário pediu uma revanche!</span>
+          </div>
+          {secondsLeft !== null && (
+            <span className="px-2 py-0.5 rounded-full bg-purple-900/80 text-[10px] font-mono font-bold text-purple-200">
+              {secondsLeft}s
+            </span>
+          )}
         </div>
         <p className="text-[11px] text-purple-300/90 leading-relaxed">
           Você deseja jogar uma nova partida contra o mesmo adversário?
@@ -207,18 +249,30 @@ export const RematchControl: React.FC<RematchControlProps> = ({
   // 4. Estado: Revanche Recusada
   if (rematchInfo?.status === 'declined') {
     return (
-      <div className={`p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-2 text-center ${className}`}>
+      <div className={`p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-3 text-center ${className}`}>
         <div className="text-slate-400 font-medium">
-          O pedido de revanche foi recusado.
+          O pedido de revanche foi recusado pelo adversário.
         </div>
-        <button
-          type="button"
-          onClick={handleRequestRematch}
-          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Pedir revanche novamente</span>
-        </button>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+          {onFindNewOpponent && (
+            <button
+              type="button"
+              onClick={onFindNewOpponent}
+              className="w-full sm:flex-1 py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
+            >
+              <Swords className="w-4 h-4" />
+              <span>Encontrar outro jogador</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleRequestRematch}
+            className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 transition-colors py-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Pedir revanche novamente</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -226,38 +280,65 @@ export const RematchControl: React.FC<RematchControlProps> = ({
   // 5. Estado: Revanche Expirada
   if (rematchInfo?.status === 'expired') {
     return (
-      <div className={`p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-2 text-center ${className}`}>
+      <div className={`p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-3 text-center ${className}`}>
         <div className="text-slate-400 font-medium">
-          O pedido de revanche expirou por tempo.
+          O pedido de revanche expirou por tempo (30s) ou o oponente está indisponível.
         </div>
-        <button
-          type="button"
-          onClick={handleRequestRematch}
-          className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Solicitar revanche novamente</span>
-        </button>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+          {onFindNewOpponent && (
+            <button
+              type="button"
+              onClick={onFindNewOpponent}
+              className="w-full sm:flex-1 py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
+            >
+              <Swords className="w-4 h-4" />
+              <span>Encontrar outro jogador</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleRequestRematch}
+            className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-400 hover:text-slate-200 transition-colors py-1"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Tentar revanche novamente</span>
+          </button>
+        </div>
       </div>
     );
   }
 
-  // 6. Erro de ação
+  // 6. Erro de ação ou oponente indisponível
   if (errorMsg) {
+    const isOpponentUnavailable = errorCode === 'OPPONENT_UNAVAILABLE';
     return (
-      <div className={`p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs space-y-2 text-center ${className}`}>
-        <div className="flex items-center justify-center gap-1.5 font-medium text-red-300">
-          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+      <div className={`p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-3 text-center ${className}`}>
+        <div className="flex items-center justify-center gap-1.5 font-medium text-amber-300">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
           <span>{errorMsg}</span>
         </div>
-        <button
-          type="button"
-          onClick={handleRequestRematch}
-          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-900/60 hover:bg-red-800/80 text-white font-bold text-[11px] transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Tentar Novamente</span>
-        </button>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-1">
+          {onFindNewOpponent && (
+            <button
+              type="button"
+              onClick={onFindNewOpponent}
+              className="w-full sm:flex-1 py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
+            >
+              <Swords className="w-4 h-4" />
+              <span>Encontrar outro jogador</span>
+            </button>
+          )}
+          {!isOpponentUnavailable && (
+            <button
+              type="button"
+              onClick={handleRequestRematch}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-[11px] transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Tentar Novamente</span>
+            </button>
+          )}
+        </div>
       </div>
     );
   }

@@ -328,6 +328,10 @@ function MainApp() {
             setIsHistoryOpen(true);
           }}
           onStartRematch={handleStartMatch}
+          onFindNewOpponent={() => {
+            handleDismissCompletedRecovery();
+            setIsMatchmakingOpen(true);
+          }}
         />
       )}
 
