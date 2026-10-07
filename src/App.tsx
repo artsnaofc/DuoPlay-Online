@@ -39,7 +39,9 @@ import { useChat } from '@/hooks/useChat';
 import { ReceivedGameInviteModal } from '@/components/social/ReceivedGameInviteModal';
 import { ChatModal } from '@/components/chat/ChatModal';
 import { useActiveWaitingRoom } from '@/hooks/useActiveWaitingRoom';
+import { useNotifications } from '@/hooks/useNotifications';
 import type { Friend } from '@/types/social';
+import type { NotificationItem } from '@/types/notifications';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
@@ -55,6 +57,9 @@ function MainApp() {
 
   // Heartbeat de Presença Global (Fase 14.2 — Lease de Presença)
   usePresenceHeartbeat();
+
+  // Central de Notificações em Tempo Real (Fase 16.1)
+  const notificationsSystem = useNotifications();
 
   // Sistema de Comunicação e Chat Privado (Fase 15)
   const chat = useChat();
@@ -304,6 +309,53 @@ function MainApp() {
     }
   };
 
+  const handleSelectNotification = useCallback(
+    (item: NotificationItem) => {
+      switch (item.type) {
+        case 'friend_request_received':
+        case 'friend_request_accepted':
+          setIsFriendsOpen(true);
+          break;
+
+        case 'game_invite_received':
+        case 'game_invite_accepted':
+          if (item.data?.room_code && typeof item.data.room_code === 'string') {
+            setInitialRoomCode(item.data.room_code);
+            setIsLobbyOpen(true);
+          } else {
+            setIsLobbyOpen(true);
+          }
+          break;
+
+        case 'new_message':
+          setIsChatOpen(true);
+          if (item.data?.actor_id && typeof item.data.actor_id === 'string') {
+            chat.openConversationWithFriend(item.data.actor_id);
+          } else if (item.data?.conversation_id && typeof item.data.conversation_id === 'string') {
+            chat.openConversationById(item.data.conversation_id);
+          }
+          break;
+
+        case 'rematch_received':
+        case 'rematch_accepted':
+          if (item.data?.match_id && typeof item.data.match_id === 'string') {
+            handleStartMatch(item.data.match_id);
+          } else if (item.data?.original_match_id && typeof item.data.original_match_id === 'string') {
+            setIsHistoryOpen(true);
+          }
+          break;
+
+        case 'match_finished':
+          setIsHistoryOpen(true);
+          break;
+
+        default:
+          break;
+      }
+    },
+    [chat]
+  );
+
   return (
     <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-blue-600 selection:text-white">
       {/* Platform Header */}
@@ -323,6 +375,16 @@ function MainApp() {
             setIsLobbyOpen(true);
           }
         }}
+        notifications={notificationsSystem.notifications}
+        unreadNotificationCount={notificationsSystem.unreadCount}
+        isNotificationsLoading={notificationsSystem.isLoading}
+        hasMoreNotifications={notificationsSystem.hasMore}
+        notificationsError={notificationsSystem.error}
+        onRefreshNotifications={notificationsSystem.refreshNotifications}
+        onFetchNextNotificationsPage={notificationsSystem.fetchNextPage}
+        onMarkNotificationAsRead={notificationsSystem.markAsRead}
+        onMarkAllNotificationsAsRead={notificationsSystem.markAllAsRead}
+        onSelectNotification={handleSelectNotification}
       />
 
       {/* Banner de Sala de Espera Ativa (Evita salas esquecidas) */}

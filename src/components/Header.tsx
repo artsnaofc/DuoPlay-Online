@@ -10,8 +10,10 @@ import { Menu, X, Gamepad2, LogIn, Swords, History, Users, MessageSquare } from 
 import { PWAInstallButton } from './PWAInstallButton';
 import { UserMenu } from './auth/UserMenu';
 import { AuthModal } from './auth/AuthModal';
+import { NotificationCenter } from './notifications/NotificationCenter';
 import { useAuth } from '@/hooks/useAuth';
 import { useSocial } from '@/hooks/useSocial';
+import type { NotificationItem } from '@/types/notifications';
 
 export interface HeaderProps {
   onNavigate?: (sectionId: string) => void;
@@ -25,6 +27,16 @@ export interface HeaderProps {
   onResumeActiveMatch?: () => void;
   activeWaitingRoomCode?: string | null;
   onOpenActiveWaitingRoom?: () => void;
+  notifications?: NotificationItem[];
+  unreadNotificationCount?: number;
+  isNotificationsLoading?: boolean;
+  hasMoreNotifications?: boolean;
+  notificationsError?: string | null;
+  onRefreshNotifications?: () => void;
+  onFetchNextNotificationsPage?: () => void;
+  onMarkNotificationAsRead?: (id: string) => void;
+  onMarkAllNotificationsAsRead?: () => void;
+  onSelectNotification?: (notification: NotificationItem) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -39,6 +51,16 @@ export const Header: React.FC<HeaderProps> = ({
   onResumeActiveMatch,
   activeWaitingRoomCode,
   onOpenActiveWaitingRoom,
+  notifications = [],
+  unreadNotificationCount = 0,
+  isNotificationsLoading = false,
+  hasMoreNotifications = false,
+  notificationsError = null,
+  onRefreshNotifications = () => {},
+  onFetchNextNotificationsPage = () => {},
+  onMarkNotificationAsRead = () => {},
+  onMarkAllNotificationsAsRead = () => {},
+  onSelectNotification,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -194,12 +216,27 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </nav>
 
-            {/* Zone 3: Header Right Actions (PWA Install + Auth) */}
+            {/* Zone 3: Header Right Actions (PWA Install + Auth + Notifications) */}
             <div className="hidden sm:flex items-center gap-3">
               <PWAInstallButton />
 
               {!isLoading && (
                 <>
+                  {isAuthenticated && (
+                    <NotificationCenter
+                      notifications={notifications}
+                      unreadCount={unreadNotificationCount}
+                      isLoading={isNotificationsLoading}
+                      hasMore={hasMoreNotifications}
+                      error={notificationsError}
+                      onRefresh={onRefreshNotifications}
+                      onFetchNextPage={onFetchNextNotificationsPage}
+                      onMarkAsRead={onMarkNotificationAsRead}
+                      onMarkAllAsRead={onMarkAllNotificationsAsRead}
+                      onSelectNotification={onSelectNotification}
+                    />
+                  )}
+
                   {isAuthenticated ? (
                     <UserMenu
                       onOpenHistory={onOpenHistory}
@@ -232,6 +269,21 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Mobile Header Actions */}
             <div className="flex sm:hidden items-center gap-2">
               <PWAInstallButton />
+
+              {isAuthenticated && (
+                <NotificationCenter
+                  notifications={notifications}
+                  unreadCount={unreadNotificationCount}
+                  isLoading={isNotificationsLoading}
+                  hasMore={hasMoreNotifications}
+                  error={notificationsError}
+                  onRefresh={onRefreshNotifications}
+                  onFetchNextPage={onFetchNextNotificationsPage}
+                  onMarkAsRead={onMarkNotificationAsRead}
+                  onMarkAllAsRead={onMarkAllNotificationsAsRead}
+                  onSelectNotification={onSelectNotification}
+                />
+              )}
 
               {isAuthenticated ? (
                 <UserMenu

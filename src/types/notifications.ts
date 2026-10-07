@@ -44,6 +44,7 @@ export interface NotificationItem {
   };
   read_at: string | null;
   created_at: string;
+  event_key?: string | null;
 }
 
 export interface ActivityEvent {
