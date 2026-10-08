@@ -34,6 +34,7 @@ import {
   mapRowToPlayerProfile,
 } from '@/services/profile';
 import { getMyMatchHistory, type MatchHistoryItem } from '@/services/matchHistory';
+import { AchievementsList } from './AchievementsList';
 
 export interface PlayerProfileModalProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({
   const { user, profile, refreshProfile } = useAuth();
 
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'stats' | 'achievements'>('stats');
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [selectedAvatarUrl, setSelectedAvatarUrl] = useState<string | null>(null);
@@ -236,34 +238,68 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({
               </button>
             </div>
 
-            {/* Level & Progression Bar */}
-            {(() => {
-              const levelProgress = calculateLevelProgress(currentProfile.xp);
-              return (
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-indigo-500/20 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold">
-                    <div className="flex items-center gap-2 text-indigo-300">
-                      <Sparkles className="w-4 h-4 text-amber-400" />
-                      <span>Nível {levelProgress.level}</span>
-                      <span className="text-[10px] text-slate-400 font-normal">
-                        ({currentProfile.xp} XP total)
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-mono text-slate-300">
-                      {levelProgress.xpInCurrentLevel} / {levelProgress.xpForNextLevel} XP
-                    </span>
-                  </div>
+            {/* Tabs Selector */}
+            <div className="flex border-b border-slate-800 mb-2" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'stats'}
+                onClick={() => setActiveTab('stats')}
+                className={`flex-1 py-2 font-bold text-xs border-b-2 transition-colors ${
+                  activeTab === 'stats'
+                    ? 'border-blue-500 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Estatísticas
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'achievements'}
+                onClick={() => setActiveTab('achievements')}
+                className={`flex-1 py-2 font-bold text-xs border-b-2 transition-colors ${
+                  activeTab === 'achievements'
+                    ? 'border-blue-500 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Conquistas & Badges
+              </button>
+            </div>
 
-                  {/* Progress bar */}
-                  <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-0.5">
-                    <div
-                      className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-amber-400 rounded-full transition-all duration-500"
-                      style={{ width: `${levelProgress.progressPercentage}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })()}
+            {activeTab === 'achievements' ? (
+              <AchievementsList userId={currentProfile.id} />
+            ) : (
+              <>
+                {/* Level & Progression Bar */}
+                {(() => {
+                  const levelProgress = calculateLevelProgress(currentProfile.xp);
+                  return (
+                    <div className="p-4 rounded-xl bg-slate-950/80 border border-indigo-500/20 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <div className="flex items-center gap-2 text-indigo-300">
+                          <Sparkles className="w-4 h-4 text-amber-400" />
+                          <span>Nível {levelProgress.level}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            ({currentProfile.xp} XP total)
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-mono text-slate-300">
+                          {levelProgress.xpInCurrentLevel} / {levelProgress.xpForNextLevel} XP
+                        </span>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                        <div
+                          className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-amber-400 rounded-full transition-all duration-500"
+                          style={{ width: `${levelProgress.progressPercentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
 
             {/* Rating & Streaks Bar */}
             <div className="grid grid-cols-3 gap-2.5">
@@ -418,6 +454,8 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({
                 </div>
               )}
             </div>
+          </>
+        )}
 
             {/* Actions */}
             <div className="pt-2 flex flex-col sm:flex-row gap-2.5">

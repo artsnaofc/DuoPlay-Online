@@ -514,6 +514,19 @@ export type Database = {
         };
         Returns: Json;
       };
+      get_user_achievements: {
+        Args: {
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      evaluate_user_achievements: {
+        Args: {
+          p_user_id: string;
+          p_game_id: string;
+        };
+        Returns: void;
+      };
     };
     Enums: {
       [_ in never]: never;

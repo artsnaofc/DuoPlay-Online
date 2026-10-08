@@ -20,9 +20,11 @@ import {
   Gamepad2,
   Trash2,
   MessageSquare,
+  Medal,
 } from 'lucide-react';
 import { PlayerAvatar } from './PlayerAvatar';
 import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile';
+import { AchievementsList } from './AchievementsList';
 import {
   getFriendshipStatus,
   sendFriendRequest,
@@ -297,6 +299,15 @@ export const PublicPlayerProfileModal: React.FC<PublicPlayerProfileModalProps> =
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Unlocked Achievements (Badges) */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300 uppercase tracking-wider">
+                <Medal className="w-3.5 h-3.5 text-amber-400" />
+                <span>Badges Conquistadas</span>
+              </div>
+              <AchievementsList userId={profile.id} showOnlyUnlocked={true} />
             </div>
 
             {/* Social Relationship & Action Bar */}
