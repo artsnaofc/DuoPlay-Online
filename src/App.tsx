@@ -50,6 +50,8 @@ function MainApp() {
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [isLobbyOpen, setIsLobbyOpen] = useState(false);
   const [isMatchmakingOpen, setIsMatchmakingOpen] = useState(false);
+  const [selectedLobbyGameId, setSelectedLobbyGameId] = useState<string>('tic_tac_toe');
+  const [selectedMMGameId, setSelectedMMGameId] = useState<string>('tic_tac_toe');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState(false);
@@ -453,8 +455,14 @@ function MainApp() {
           />
         ) : (
           <HomePage
-            onOpenMatchmaking={() => setIsMatchmakingOpen(true)}
-            onOpenLobby={() => setIsLobbyOpen(true)}
+            onOpenMatchmaking={(gameId) => {
+              if (gameId) setSelectedMMGameId(gameId);
+              setIsMatchmakingOpen(true);
+            }}
+            onOpenLobby={(gameId) => {
+              if (gameId) setSelectedLobbyGameId(gameId);
+              setIsLobbyOpen(true);
+            }}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenProfile={() => setIsProfileOpen(true)}
             onOpenFriends={() => setIsFriendsOpen(true)}
@@ -475,12 +483,14 @@ function MainApp() {
         isOpen={isMatchmakingOpen && !activeMatchId}
         onClose={() => setIsMatchmakingOpen(false)}
         onMatchFound={handleStartMatch}
+        gameId={selectedMMGameId}
       />
 
       {/* Modal de Salas & Lobby para Partidas Privadas */}
       <RoomLobbyModal
         isOpen={isLobbyOpen}
         initialCode={initialRoomCode}
+        defaultGameId={selectedLobbyGameId}
         onClose={() => {
           setIsLobbyOpen(false);
           setInitialRoomCode(null);

@@ -55,6 +55,16 @@ Primeiro jogo multiplayer da plataforma.
 - Ranking
 - XP e progressão
 
+### 🃏 Carta Duo
+
+Jogo de cartas multiplayer por turnos dinâmico e polido.
+
+- Partidas 1v1
+- Descarte por correspondência de cor, valor ou símbolo
+- Cartas especiais de ação (compra, bloqueio, inversão de turnos)
+- Sistema server-side de segurança absoluta das mãos e baralho
+- Raciocínio estratégico e XP integrado
+
 ### 🚧 Próximos jogos
 
 A plataforma está sendo preparada para receber novos jogos multiplayer.
@@ -67,115 +77,10 @@ A plataforma está sendo preparada para receber novos jogos multiplayer.
 
 ## 👥 Social
 
-O DuoPlay possui recursos para conectar jogadores:
+O DuoPlay possui recursos para conectar os jogadores de forma amigável:
 
-- Adicionar amigos
-- Aceitar e recusar solicitações
-- Buscar jogadores
-- Ver perfis públicos
-- Ver status online/offline
-- Convidar amigos para jogar
-- Conversar por chat privado
-
----
-
-## 🏆 Progressão
-
-Os jogadores podem acompanhar sua evolução através de:
-
-- Vitórias
-- Derrotas
-- Empates
-- Taxa de vitória
-- Sequências de vitórias
-- Melhor sequência
-- Rating
-- Ranking
-- XP
-- Níveis
-- Conquistas
-- Badges
-
-A progressão é integrada às partidas e preparada para futuras funcionalidades competitivas.
-
----
-
-## 🏗️ Tecnologia
-
-### Frontend
-
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-- PWA
-
-### Backend
-
-- Supabase Auth
-- PostgreSQL
-- Supabase Realtime
-- PostgreSQL RPC
-- Row Level Security (RLS)
-
-### Deploy
-
-- Vercel
-- GitHub
-
----
-
-## 🔐 Segurança
-
-O DuoPlay utiliza validações no backend para proteger as partidas e os dados dos jogadores.
-
-Entre os recursos utilizados:
-
-- Autenticação
-- RLS
-- RPCs
-- Validação server-side
-- Controle de permissões
-- Operações idempotentes
-- Sincronização e recuperação de partidas
-
-Resultados de partidas, estatísticas, ranking e progressão não dependem de valores enviados diretamente pelo cliente.
-
----
-
-## 📱 Responsivo e PWA
-
-O projeto possui abordagem **mobile-first**, funcionando em:
-
-- 📱 Celulares
-- 📲 Tablets
-- 💻 Notebooks
-- 🖥️ Desktops
-
-Também possui suporte a PWA para instalação em dispositivos compatíveis.
-
----
-
-## 🧪 Testes
-
-O projeto possui testes automatizados para diferentes áreas da aplicação, incluindo:
-
-- Multiplayer
-- Matchmaking
-- Rematch
-- Chat
-- Notificações
-- Estatísticas
-- Ranking
-- Progressão
-- Segurança
-- Validação dos jogos
-
-Comandos principais:
-
-```bash
-npm test
-npm run lint
-npx tsc --noEmit
-npm run build
-```
+- Perfis customizáveis com avatares e estatísticas detalhadas
+- Sistema de amizades bilaterais em tempo real
+- Chat privado com mensagens persistentes e indicadores de leitura
+- Convites de partida instantâneos e notificações contextuais
+- Leaderboard competitivo geral e por jogos

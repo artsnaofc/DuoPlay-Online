@@ -23,21 +23,27 @@ import {
   getMyMatchmakingStatus,
   type MatchmakingQueueInfo,
 } from '@/services/matchmaking';
+import { getGameDefinition } from '@/multiplayer/registry/index';
 
 export interface PublicMatchmakingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMatchFound: (matchId: string) => void;
+  gameId?: string; // NOVO: permite matchmaking para qualquer jogo
 }
 
 export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
   isOpen,
   onClose,
   onMatchFound,
+  gameId = 'tic_tac_toe',
 }) => {
   const [queueInfo, setQueueInfo] = useState<MatchmakingQueueInfo | null>(null);
   const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const gameDef = getGameDefinition(gameId);
+  const gameTitle = gameDef?.title || 'Jogo';
 
   // Guardas de ciclo de vida e concorrência
   const isMountedRef = useRef<boolean>(true);
@@ -60,7 +66,7 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
     setErrorMsg(null);
 
     try {
-      const res = await joinMatchmakingQueue('tic_tac_toe');
+      const res = await joinMatchmakingQueue(gameId);
       if (!isMountedRef.current) return;
 
       if (res.success && res.data) {
@@ -231,7 +237,7 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
               <h2 id="matchmaking-modal-title" className="text-base font-bold text-white">
                 Partida Rápida
               </h2>
-              <p className="text-[11px] text-slate-400">Jogo da Velha · Matchmaking Público</p>
+              <p className="text-[11px] text-slate-400">{gameTitle} · Matchmaking Público</p>
             </div>
           </div>
           <button

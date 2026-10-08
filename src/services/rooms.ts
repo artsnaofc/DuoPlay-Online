@@ -391,3 +391,45 @@ export async function getMyActiveWaitingRoom(): Promise<RoomOperationResult<Room
     return { success: false, error: translated.message, code: translated.code };
   }
 }
+
+/**
+ * Atualiza as configurações personalizadas da sala via RPC update_room_config.
+ */
+export async function updateRoomConfig(
+  roomId: string,
+  config: Record<string, any>
+): Promise<RoomOperationResult<{ room_id: string; config: Record<string, any> }>> {
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Supabase não está configurado.', code: 'NOT_CONFIGURED' };
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('update_room_config', {
+      p_room_id: roomId,
+      p_config: config,
+    });
+
+    if (error) {
+      const translated = translateRoomError(error);
+      return { success: false, error: translated.message, code: translated.code };
+    }
+
+    const payload = data as {
+      success: boolean;
+      data?: { room_id: string; config: Record<string, any> };
+      error?: { message: string; code: string };
+    };
+
+    if (!payload.success || !payload.data) {
+      const translated = translateRoomError(payload.error);
+      return { success: false, error: translated.message, code: translated.code };
+    }
+
+    return { success: true, data: payload.data };
+  } catch (err) {
+    const translated = translateRoomError(err);
+    return { success: false, error: translated.message, code: translated.code };
+  }
+}
+

@@ -46,6 +46,7 @@ export interface RoomDTO {
   status: RoomStatus;
   is_private: boolean;
   max_members: number;
+  config?: Record<string, any>; // Regras personalizadas da sala (JSONB)
   current_match_id: MatchId | null;
   created_at: string;
   updated_at: string;

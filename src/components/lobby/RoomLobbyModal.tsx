@@ -1,12 +1,13 @@
 // ============================================================================
 // Component: RoomLobbyModal — DuoPlay-Online
-// Phase: Fase 7.0.2 — Correção do RLS e Carregamento do Lobby
+// Phase: Fase 20 — Carta Duo 🃏
 // Description: Modal de criação, entrada por código e espera de sala.
-//              Gerencia estados explícitos de carregamento, erro e espera,
-//              garantindo que erros de RLS ou rede não gerem telas vazias.
+//              Gerencia estados explícitos de carregamento, erro e espera.
+//              Suporta salas de qualquer jogo da plataforma, com suporte a
+//              regras de jogos específicas (ex: Carta Duo) e de 2 a 6 jogadores.
 // ============================================================================
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   X,
   Plus,
@@ -24,6 +25,7 @@ import {
   RefreshCw,
   UserPlus,
   Minimize2,
+  Sparkles,
 } from 'lucide-react';
 import {
   createRoom,
@@ -33,13 +35,16 @@ import {
   leaveRoom,
   getRoomDetails,
   RoomWithMembers,
+  updateRoomConfig,
 } from '@/services/rooms';
 import { useAuth } from '@/hooks/useAuth';
 import { InviteFriendsToRoomModal } from '@/components/social/InviteFriendsToRoomModal';
+import { getGameDefinition } from '@/multiplayer/registry/index';
 
 interface RoomLobbyModalProps {
   isOpen: boolean;
   initialCode?: string | null;
+  defaultGameId?: string; // Permite definir qual jogo criar
   onClose: () => void;
   onMatchStarted: (matchId: string) => void;
 }
@@ -47,6 +52,7 @@ interface RoomLobbyModalProps {
 export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   isOpen,
   initialCode,
+  defaultGameId = 'tic_tac_toe',
   onClose,
   onMatchStarted,
 }) => {
@@ -64,6 +70,16 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   const pollingRef = useRef<number | null>(null);
   const lastLoadedCodeRef = useRef<string | null>(null);
+
+  // Deriva o jogo atual do lobby
+  const gameDef = useMemo(() => {
+    const gameId = currentRoom?.game_id || defaultGameId;
+    return getGameDefinition(gameId);
+  }, [currentRoom?.game_id, defaultGameId]);
+
+  const gameTitle = gameDef?.title || 'Jogo';
+  const maxPlayers = gameDef?.maxPlayers || 2;
+  const isHost = currentRoom?.host_id === currentUserId;
 
   // Limpar erro ao mudar de modo
   const changeMode = (newMode: 'options' | 'join' | 'waiting') => {
@@ -111,7 +127,6 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     } else {
       setIsLoading(false);
       // Se a sala não existe ou foi encerrada, mantém o modo 'waiting' com tela de erro
-      // para evitar que o usuário caia no menu "Criar Sala" ao clicar em "Voltar para a sala".
       setCurrentRoom(null);
       setErrorMessage(result.error || 'Esta sala foi encerrada ou não foi encontrada.');
     }
@@ -169,14 +184,31 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     setIsLoading(true);
     setErrorMessage(null);
 
-    const result = await createRoom('tic_tac_toe', 'Jogo da Velha Multiplayer');
+    const targetGameDef = getGameDefinition(defaultGameId);
+    const targetGameTitle = targetGameDef?.title || 'Jogo';
+    const result = await createRoom(defaultGameId, `${targetGameTitle} Multiplayer`);
 
     if (result.success && result.data?.room?.id) {
       const roomId = result.data.room.id;
       setPendingRoomId(roomId);
+
+      // Se for Carta Duo, salva as regras padrão na criação da sala
+      if (defaultGameId === 'carta_duo' || defaultGameId === 'carta-duo') {
+        try {
+          await updateRoomConfig(roomId, {
+            initial_cards: 7,
+            cumulative_draw: true,
+            force_draw: true,
+            play_immediately: true,
+            turn_timer: 30,
+          });
+        } catch {
+          // Silencia falhas transitórias de configuração inicial
+        }
+      }
+
       const loaded = await loadRoom(roomId);
       if (!loaded) {
-        // Se a leitura inicial falhar, entra em waiting para exibir o erro e botão de retry
         setMode('waiting');
       }
     } else {
@@ -244,7 +276,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     }
   };
 
-  // 5. Ação: Sair Realmente da Sala (Chamado apenas ao clicar em "Sair da Sala")
+  // 5. Ação: Sair Realmente da Sala
   const handleLeaveRoom = async () => {
     const targetRoomId = currentRoom?.id || pendingRoomId;
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -271,16 +303,34 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // 6. Atualiza as configurações personalizadas da sala (Host apenas)
+  const handleUpdateRule = async (key: string, value: any) => {
+    if (!currentRoom || !isHost) return;
+    const currentConfig = (currentRoom.config as Record<string, any>) || {};
+    const newConfig = {
+      ...currentConfig,
+      [key]: value,
+    };
+    setIsLoading(true);
+    const result = await updateRoomConfig(currentRoom.id, newConfig);
+    setIsLoading(false);
+    if (result.success) {
+      await refreshRoom(currentRoom.id);
+    } else {
+      setErrorMessage(result.error || 'Não foi possível atualizar as configurações da sala.');
+    }
+  };
+
   if (!isOpen) return null;
 
-  const isHost = currentRoom?.host_id === currentUserId;
-  const hostMember = currentRoom?.members.find((m) => m.user_id === currentRoom?.host_id);
-  const guestMember = currentRoom?.members.find((m) => m.user_id !== currentRoom?.host_id);
   const myMember = currentRoom?.members.find((m) => m.user_id === currentUserId);
-
   const playerMembers = currentRoom?.members.filter((m) => m.role === 'player') || [];
-  const allPlayersReady = playerMembers.length >= 2 && playerMembers.every((m) => m.is_ready);
-  const canStartMatch = isHost && playerMembers.length >= 2 && allPlayersReady;
+  const guestMember = currentRoom?.members.find((m) => m.user_id !== currentRoom?.host_id);
+
+  // Partida pode ser iniciada se houver a quantidade mínima regulamentar e todos estiverem prontos
+  const minPlayersRequired = gameDef?.minPlayers || 2;
+  const allPlayersReady = playerMembers.length >= minPlayersRequired && playerMembers.every((m) => m.is_ready);
+  const canStartMatch = isHost && playerMembers.length >= minPlayersRequired && allPlayersReady;
 
   return (
     <div
@@ -288,7 +338,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
       aria-modal="true"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
-          onClose(); // Minimiza sem sair da sala
+          onClose(); // Minimiza sem fechar sala
         }
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
@@ -297,17 +347,17 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
             <h2 className="text-base font-bold text-white tracking-tight">
-              {mode === 'waiting' ? 'Sala de Espera' : 'Multiplayer — Jogo da Velha'}
+              {mode === 'waiting' ? `Lobby — ${gameTitle}` : `Multiplayer — ${gameTitle}`}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1.5"
-            title={mode === 'waiting' ? 'Minimizar Sala de Espera (manter ativa)' : 'Fechar'}
-            aria-label={mode === 'waiting' ? 'Minimizar Sala de Espera' : 'Fechar'}
+            title={mode === 'waiting' ? 'Minimizar Sala (manter ativa)' : 'Fechar'}
+            aria-label={mode === 'waiting' ? 'Minimizar Sala' : 'Fechar'}
           >
             {mode === 'waiting' ? (
               <>
@@ -321,10 +371,11 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
         </div>
 
         {/* Global Error banner if in options or join mode */}
-        {errorMessage && mode !== 'waiting' && (
-          <div className="mb-4 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-center gap-2">
+        {errorMessage && (
+          <div className="mb-4 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-center gap-2 animate-in fade-in">
             <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
             <span className="grow">{errorMessage}</span>
+            <button type="button" onClick={() => setErrorMessage(null)} className="text-[10px] font-bold text-red-400">OK</button>
           </div>
         )}
 
@@ -332,7 +383,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
         {mode === 'options' && (
           <div className="space-y-4">
             <p className="text-xs text-slate-300 leading-relaxed">
-              Jogue em tempo real com um amigo. Crie uma nova sala para gerar um código ou entre em uma sala existente.
+              Jogue {gameTitle} em tempo real com amigos. Crie uma nova sala para gerar um código ou entre em uma sala compartilhada por outro jogador.
             </p>
 
             <div className="grid grid-cols-1 gap-3 pt-2">
@@ -347,7 +398,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                   </div>
                   <div className="text-left">
                     <div className="leading-tight">Criar Nova Sala</div>
-                    <div className="text-[11px] text-blue-200 font-normal">Gere um código para convidar um amigo</div>
+                    <div className="text-[11px] text-blue-200 font-normal">Gera o código privado de {gameTitle}</div>
                   </div>
                 </div>
                 {isLoading && <RotateCw className="w-4 h-4 animate-spin text-white" />}
@@ -364,7 +415,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                   </div>
                   <div className="text-left">
                     <div className="leading-tight">Entrar com Código</div>
-                    <div className="text-[11px] text-slate-400 font-normal">Insira o código de uma sala existente</div>
+                    <div className="text-[11px] text-slate-400 font-normal">Insira o código de 6 caracteres do amigo</div>
                   </div>
                 </div>
               </button>
@@ -414,13 +465,12 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
         {/* 3. MODO: Waiting Room (Sala de Espera) */}
         {mode === 'waiting' && (
           <>
-            {/* Caso 1: Sala carregada com sucesso */}
             {currentRoom && (
               <div className="space-y-5">
-                {/* Room Code Card & Invite Actions */}
+                {/* Room Code Card */}
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-3">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Código para convidar amigo:
+                    Código para convidar amigos:
                   </span>
                   <div className="flex items-center justify-center gap-3">
                     <span className="text-2xl sm:text-3xl font-mono font-black text-blue-400 tracking-wider">
@@ -436,133 +486,231 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    {copied ? 'Código copiado para a área de transferência!' : 'Compartilhe este código ou convide diretamente'}
+                    {copied ? 'Código copiado com sucesso!' : 'Pessoas com este código podem entrar no lobby privado.'}
                   </p>
 
-                  {/* Botão de convite direto para amigos */}
-                  {isHost && !guestMember && (
+                  {/* Convites Diretos */}
+                  {isHost && currentRoom.members.length < maxPlayers && (
                     <button
                       type="button"
                       onClick={() => setIsInviteFriendsOpen(true)}
                       className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600/30 to-purple-600/30 hover:from-blue-600/40 hover:to-purple-600/40 border border-blue-500/40 text-blue-200 font-bold text-xs transition-all flex items-center justify-center gap-2 shadow-sm"
                     >
                       <UserPlus className="w-4 h-4 text-blue-400" />
-                      <span>Convidar Amigos da Lista</span>
+                      <span>Convidar Amigos Online</span>
                     </button>
                   )}
                 </div>
 
-                {/* Players list */}
+                {/* Lista Dinâmica de Membros */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs text-slate-400 font-semibold px-1">
-                    <span>Participantes ({currentRoom.members.length}/2)</span>
+                    <span>Participantes ({currentRoom.members.length}/{maxPlayers})</span>
                     <Users className="w-3.5 h-3.5" />
                   </div>
 
-                  {/* Slot 1: Host */}
-                  <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-750 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-blue-600/30 border border-blue-500/40 text-blue-400 font-black text-xs flex items-center justify-center">
-                        X
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                          <span>{hostMember?.display_name || currentRoom.members[0]?.display_name || 'Anfitrião'}</span>
-                          {hostMember?.user_id === currentUserId && (
-                            <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
-                          )}
-                          <Crown className="w-3 h-3 text-amber-400 shrink-0" />
-                        </div>
-                        <div className="text-[10px] text-slate-400">Slot 1 · Host</div>
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[11px] font-bold flex items-center gap-1 ${
-                        hostMember?.is_ready !== false ? 'text-emerald-400' : 'text-amber-400'
-                      }`}
-                    >
-                      {hostMember?.is_ready !== false ? (
-                        <>
-                          <UserCheck className="w-3.5 h-3.5" /> Pronto
-                        </>
-                      ) : (
-                        <>
-                          <UserX className="w-3.5 h-3.5" /> Preparando...
-                        </>
-                      )}
-                    </span>
-                  </div>
-
-                  {/* Slot 2: Guest */}
-                  {guestMember ? (
-                    <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-750 flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-purple-600/30 border border-purple-500/40 text-purple-400 font-black text-xs flex items-center justify-center">
-                          O
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                            <span>{guestMember.display_name}</span>
-                            {guestMember.user_id === currentUserId && (
-                              <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
-                            )}
+                  <div className="space-y-2 max-h-[12rem] overflow-y-auto pr-1">
+                    {currentRoom.members.map((member) => {
+                      const isMemberHost = member.user_id === currentRoom.host_id;
+                      return (
+                        <div
+                          key={member.id}
+                          className="p-3 rounded-xl bg-slate-800/60 border border-slate-750 flex items-center justify-between"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-700/60 text-slate-300 font-black text-xs flex items-center justify-center">
+                              {member.slot_number || '?'}
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                                <span className="truncate max-w-[8rem]">{member.display_name}</span>
+                                {member.user_id === currentUserId && (
+                                  <span className="text-[10px] text-slate-400 font-normal">(Você)</span>
+                                )}
+                                {isMemberHost && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {isMemberHost ? 'Slot 1 · Host' : `Slot ${member.slot_number} · Convidado`}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[10px] text-slate-400">Slot 2 · Convidado</div>
+
+                          <span
+                            className={`text-[11px] font-bold flex items-center gap-1 ${
+                              member.is_ready ? 'text-emerald-400' : 'text-amber-400'
+                            }`}
+                          >
+                            {member.is_ready ? (
+                              <>
+                                <UserCheck className="w-3.5 h-3.5" /> Pronto
+                              </>
+                            ) : (
+                              <>
+                                <UserX className="w-3.5 h-3.5" /> Preparando
+                              </>
+                            )}
+                          </span>
                         </div>
+                      );
+                    })}
+
+                    {/* Vaga pendente */}
+                    {currentRoom.members.length < maxPlayers && (
+                      <div className="p-3 rounded-xl border border-dashed border-slate-800 bg-slate-950/20 text-center">
+                        <p className="text-xs text-slate-500 animate-pulse">
+                          Aguardando mais competidores ({currentRoom.members.length}/{maxPlayers})...
+                        </p>
                       </div>
-                      <span
-                        className={`text-[11px] font-bold flex items-center gap-1 ${
-                          guestMember.is_ready ? 'text-emerald-400' : 'text-amber-400'
-                        }`}
-                      >
-                        {guestMember.is_ready ? (
-                          <>
-                            <UserCheck className="w-3.5 h-3.5" /> Pronto
-                          </>
-                        ) : (
-                          <>
-                            <UserX className="w-3.5 h-3.5" /> Preparando...
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="p-3.5 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 text-center">
-                      <p className="text-xs text-slate-400 animate-pulse">
-                        Aguardando entrada do segundo jogador...
-                      </p>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {/* Mensagens de Alerta de Prontidão quando há 2 jogadores */}
-                {playerMembers.length >= 2 && !allPlayersReady && (
-                  <div className="p-3.5 rounded-xl bg-amber-950/70 border border-amber-800/80 text-amber-200 text-xs flex items-center gap-2.5 animate-in fade-in">
+                {/* SEÇÃO DE CONFIGURAÇÕES DE REGRAS EXCLUSIVAS (CARTA DUO) */}
+                {(currentRoom.game_id === 'carta_duo' || currentRoom.game_id === 'carta-duo') && (
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-850/80 space-y-3">
+                    <h3 className="text-xs font-black uppercase text-blue-400 tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Regras de Carta Duo</span>
+                    </h3>
+
+                    <div className="grid grid-cols-1 gap-3 text-xs text-slate-300">
+                      {/* 1. Cartas Iniciais */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Cartas Iniciais:</span>
+                        {isHost ? (
+                          <select
+                            id="rule-initial-cards"
+                            value={(currentRoom.config as any)?.initial_cards ?? 7}
+                            onChange={(e) => handleUpdateRule('initial_cards', Number(e.target.value))}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                          >
+                            <option value={5}>5 cartas</option>
+                            <option value={7}>7 cartas (Padrão)</option>
+                            <option value={10}>10 cartas</option>
+                            <option value={12}>12 cartas</option>
+                            <option value={15}>15 cartas</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">{(currentRoom.config as any)?.initial_cards ?? 7} cartas</span>
+                        )}
+                      </div>
+
+                      {/* 2. Acúmulo de Cartas */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Acúmulo de Compra (+2/+4):</span>
+                        {isHost ? (
+                          <select
+                            id="rule-cumulative-draw"
+                            value={String((currentRoom.config as any)?.cumulative_draw ?? true)}
+                            onChange={(e) => handleUpdateRule('cumulative_draw', e.target.value === 'true')}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                          >
+                            <option value="true">Ativado (Acumular)</option>
+                            <option value="false">Desativado</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">
+                            {((currentRoom.config as any)?.cumulative_draw ?? true) ? 'Ativado' : 'Desativado'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 3. Compra Forçada */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Comprar sem jogada:</span>
+                        {isHost ? (
+                          <select
+                            id="rule-force-draw"
+                            value={String((currentRoom.config as any)?.force_draw ?? true)}
+                            onChange={(e) => handleUpdateRule('force_draw', e.target.value === 'true')}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                          >
+                            <option value="true">Apenas sem jogada</option>
+                            <option value="false">Livre (Qualquer hora)</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">
+                            {((currentRoom.config as any)?.force_draw ?? true) ? 'Apenas sem jogada' : 'Livre'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 4. Jogar Imediato */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Jogar ao comprar:</span>
+                        {isHost ? (
+                          <select
+                            id="rule-play-immediately"
+                            value={String((currentRoom.config as any)?.play_immediately ?? true)}
+                            onChange={(e) => handleUpdateRule('play_immediately', e.target.value === 'true')}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                          >
+                            <option value="true">Permitido jogar na hora</option>
+                            <option value="false">Não (Perde a vez)</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">
+                            {((currentRoom.config as any)?.play_immediately ?? true) ? 'Permitido jogar' : 'Perde a vez'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 5. Tempo do Turno */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Tempo do Turno:</span>
+                        {isHost ? (
+                          <select
+                            id="rule-turn-timer"
+                            value={(currentRoom.config as any)?.turn_timer ?? 30}
+                            onChange={(e) => handleUpdateRule('turn_timer', Number(e.target.value))}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                          >
+                            <option value={15}>15 segundos</option>
+                            <option value={30}>30 segundos</option>
+                            <option value={45}>45 segundos</option>
+                            <option value={60}>60 segundos</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">{(currentRoom.config as any)?.turn_timer ?? 30} segundos</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mensagens de Alerta de Prontidão */}
+                {playerMembers.length >= minPlayersRequired && !allPlayersReady && (
+                  <div className="p-3 bg-amber-950/70 border border-amber-800/80 text-amber-200 text-xs flex items-center gap-2.5 rounded-xl animate-in fade-in">
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
                     <div>
                       <span className="font-bold block text-amber-300">Aguardando Prontidão de Todos</span>
-                      <span className="text-[11px] text-amber-200/90">
-                        {!guestMember?.is_ready && hostMember?.is_ready === false
-                          ? 'Nenhum dos dois jogadores confirmou "Pronto". Ambos precisam confirmar antes de iniciar.'
-                          : !guestMember?.is_ready
-                          ? `Aguardando ${guestMember?.display_name || 'o convidado'} clicar em "Estou Pronto!".`
-                          : `Aguardando o anfitrião (${hostMember?.display_name || 'Host'}) confirmar prontidão.`}
+                      <span className="text-[11px] text-amber-200/90 leading-tight block">
+                        Todos os competidores do lobby precisam clicar em "Estou Pronto!" antes de começar.
                       </span>
                     </div>
                   </div>
                 )}
 
-                {playerMembers.length >= 2 && allPlayersReady && (
-                  <div className="p-3.5 rounded-xl bg-emerald-950/70 border border-emerald-800/80 text-emerald-200 text-xs flex items-center gap-2.5 animate-in fade-in">
+                {playerMembers.length >= minPlayersRequired && allPlayersReady && (
+                  <div className="p-3 bg-emerald-950/70 border border-emerald-800/80 text-emerald-200 text-xs flex items-center gap-2.5 rounded-xl animate-in fade-in">
                     <UserCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                     <div>
                       <span className="font-bold block text-emerald-300">Todos Prontos para Jogar!</span>
-                      <span className="text-[11px] text-emerald-200/90">
+                      <span className="text-[11px] text-emerald-200/90 leading-tight block">
                         {isHost
-                          ? 'Todos confirmaram prontidão. Clique em "Iniciar Partida Agora" para começar!'
+                          ? 'Todos confirmaram prontidão. Clique em "Iniciar Partida" para começar!'
                           : 'Aguardando o Anfitrião clicar em "Iniciar Partida"...'}
                       </span>
                     </div>
+                  </div>
+                )}
+
+                {playerMembers.length < minPlayersRequired && (
+                  <div className="p-3 bg-slate-800/40 border border-slate-700/60 text-slate-300 text-xs flex items-center gap-2.5 rounded-xl">
+                    <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span className="text-[11px] text-slate-400">
+                      Você precisa de pelo menos <strong>{minPlayersRequired} jogadores</strong> no lobby para iniciar.
+                    </span>
                   </div>
                 )}
 
@@ -571,7 +719,6 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                   {isHost ? (
                     <>
                       {!myMember?.is_ready ? (
-                        /* Botão único para o Host confirmar prontidão se não estiver pronto */
                         <button
                           type="button"
                           onClick={handleToggleReady}
@@ -582,7 +729,6 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                           <span>Confirmar Minha Prontidão ("Estou Pronto!")</span>
                         </button>
                       ) : (
-                        /* Botão único de Iniciar Partida quando o Host está pronto */
                         <button
                           type="button"
                           onClick={handleStartMatch}
@@ -593,9 +739,9 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                           <span>
                             {canStartMatch
                               ? 'Iniciar Partida Agora'
-                              : playerMembers.length >= 2
+                              : playerMembers.length >= minPlayersRequired
                               ? 'Aguardando Convidado Ficar Pronto'
-                              : 'Aguardando 2º Jogador Entrar'}
+                              : `Aguardando ${minPlayersRequired} Jogadores`}
                           </span>
                         </button>
                       )}
@@ -626,16 +772,16 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
               </div>
             )}
 
-            {/* Caso 2: Em carregamento inicial da sala */}
+            {/* Carregamento inicial */}
             {!currentRoom && isLoading && (
               <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
                 <RefreshCw className="w-8 h-8 animate-spin text-blue-400" />
                 <p className="text-sm font-semibold text-white">Carregando dados da sala...</p>
-                <p className="text-xs text-slate-400">Sincronizando participantes e estado oficial.</p>
+                <p className="text-xs text-slate-400">Sincronizando participantes e regras oficiais.</p>
               </div>
             )}
 
-            {/* Caso 3: Falha de carregamento da sala (Nunca renderiza modal vazio) */}
+            {/* Falha de leitura da sala */}
             {!currentRoom && !isLoading && (
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-center space-y-4">
                 <div className="w-10 h-10 rounded-full bg-red-950/60 border border-red-800/80 text-red-400 flex items-center justify-center mx-auto">
@@ -670,7 +816,8 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
             )}
           </>
         )}
-        {/* Submodal de Convite Direto para Amigos */}
+
+        {/* Submodal de Convites */}
         {currentRoom && (
           <InviteFriendsToRoomModal
             isOpen={isInviteFriendsOpen}

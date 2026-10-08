@@ -38,8 +38,8 @@ const GAMES: GameItem[] = listGames().map((g) => ({
 }));
 
 export interface HomePageProps {
-  onOpenMatchmaking?: () => void;
-  onOpenLobby?: () => void;
+  onOpenMatchmaking?: (gameId?: string) => void;
+  onOpenLobby?: (gameId?: string) => void;
   onOpenHistory?: () => void;
   onOpenProfile?: () => void;
   onOpenFriends?: () => void;
@@ -70,20 +70,20 @@ export const HomePage: React.FC<HomePageProps> = ({
   const totalWins = profile?.total_wins ?? 0;
   const winRate = totalMatches > 0 ? Math.round((totalWins / totalMatches) * 100) : 0;
 
-  const handleMatchmakingAction = () => {
+  const handleMatchmakingAction = (gameId?: string) => {
     if (!isAuthenticated) {
       setAuthModalOpen(true);
       return;
     }
-    onOpenMatchmaking?.();
+    onOpenMatchmaking?.(gameId);
   };
 
-  const handleCreateRoomAction = () => {
+  const handleCreateRoomAction = (gameId?: string) => {
     if (!isAuthenticated) {
       setAuthModalOpen(true);
       return;
     }
-    onOpenLobby?.();
+    onOpenLobby?.(gameId);
   };
 
   return (
@@ -215,7 +215,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           <div className="pt-2 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={handleMatchmakingAction}
+              onClick={() => handleMatchmakingAction()}
               className="py-3 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-xs sm:text-sm shadow-xl shadow-blue-950/60 transition-all flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
             >
               <Swords className="w-4 h-4" />
@@ -224,7 +224,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
             <button
               type="button"
-              onClick={handleCreateRoomAction}
+              onClick={() => handleCreateRoomAction()}
               className="py-3 px-5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm transition-colors flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-slate-400 active:scale-95"
             >
               <KeyRound className="w-4 h-4 text-slate-400" />

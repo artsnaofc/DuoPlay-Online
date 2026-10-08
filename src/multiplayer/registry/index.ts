@@ -7,6 +7,7 @@
 
 import React from 'react';
 import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
+import { CartaDuoGame } from '@/games/carta-duo/CartaDuoGame';
 
 // Caminhos estáticos para as artes oficiais para evitar falhas de importação de extensão (.jpg) no TSX/Node Test Runner
 const ticTacToeCover = '/src/assets/images/game_cover_tic_tac_toe_1791338712522.jpg';
@@ -112,24 +113,26 @@ const REGISTRY: Record<string, GameDefinition> = {
   'carta_duo': {
     id: 'carta_duo',
     title: 'Carta Duo',
-    tagline: 'Estratégia profunda em baralhos customizados',
+    tagline: 'Descarte e estratégia de cartas multiplayer',
     description:
-      'Jogo de cartas de estratégia e turnos onde o melhor deck vence. Gerencie seus pontos de mana, invoque criaturas e derrote o herói adversário.',
+      'Clássico jogo por turnos de descarte de cartas baseado em correspondência de cor, número ou símbolo com efeitos especiais surpreendentes.',
     minPlayers: 2,
-    maxPlayers: 2,
+    maxPlayers: 6,
     category: 'Cartas / Turnos',
     gameType: 'turn_based',
     iconName: 'swords',
     highlights: [
-      'Cartas exclusivas com efeitos mágicos',
-      'Turnos estratégicos e barra de mana',
-      'Placar oficial e ranking persistente',
+      'Partidas de 2 a 6 jogadores simultâneos',
+      'Regras configuráveis e acúmulo de compras',
+      'Cartas especiais com efeitos táticos',
+      'Placar oficial e ranking integrado',
     ],
-    isAvailable: false,
+    isAvailable: true,
+    component: CartaDuoGame,
     config: {
       category_label: 'Turnos',
       requires_timer: true,
-      deck_size: 20,
+      initial_cards: 7,
     },
   },
   'billiards': {
