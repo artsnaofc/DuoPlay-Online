@@ -221,3 +221,66 @@ export async function claimAbandonment(
     return { success: false, error: errorMsg };
   }
 }
+
+/**
+ * Avança oficialmente o turno por expiração do Turn Deadline no PostgreSQL.
+ * Validação autoritativa: agora >= turn_deadline, com FOR UPDATE e proteção concorrente contra duplo avanço.
+ */
+export async function timeoutMatchTurn(
+  matchId: string,
+  turnNumber: number
+): Promise<MatchOperationResult<{
+  match_id: string;
+  turn_number: number;
+  current_turn_player_id: string | null;
+  turn_deadline: string | null;
+  idempotent?: boolean;
+}>> {
+  if (!isSupabaseConfigured || !matchId) {
+    return { success: false, error: 'Supabase não configurado ou matchId inválido.' };
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('timeout_match_turn', {
+      p_match_id: matchId,
+      p_turn_number: turnNumber,
+    });
+
+    if (error) {
+      if (error.code === 'P0080') {
+        return { success: false, error: 'O prazo do turno ainda não expirou no servidor.', code: 'P0080' };
+      }
+      return {
+        success: false,
+        error: sanitizeMatchErrorMessage(error.message, 'Não foi possível avançar o turno expirado.'),
+        code: error.code,
+      };
+    }
+
+    const payload = data as {
+      success: boolean;
+      data?: {
+        match_id: string;
+        turn_number: number;
+        current_turn_player_id: string | null;
+        turn_deadline: string | null;
+        idempotent?: boolean;
+      };
+      error?: { message: string; code: string };
+    };
+
+    if (!payload?.success || !payload.data) {
+      return {
+        success: false,
+        error: sanitizeMatchErrorMessage(payload?.error?.message, 'Falha ao avançar turno.'),
+        code: payload?.error?.code,
+      };
+    }
+
+    return { success: true, data: payload.data };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Erro ao avançar turno por tempo.';
+    return { success: false, error: errorMsg };
+  }
+}

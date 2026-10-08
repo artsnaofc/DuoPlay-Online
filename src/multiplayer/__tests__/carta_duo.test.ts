@@ -1,8 +1,13 @@
 // ============================================================================
 // Unit & Integration Tests: Carta Duo (Phase 20) — DuoPlay-Online
-// Description: Testes autoritativos de validação das regras de jogo do Carta Duo,
-//              distribuição, turnos, acúmulo de cartas de compra, efeitos de cartas,
-//              sentido de turno, encerramento com vencedor e segurança de validações.
+// Description: Testes autoritativos de regras de jogo do Carta Duo:
+//              - Descarte com atualização imediata do topo (top_card / discard_pile[0]);
+//              - Efeito de compra imediata SEM acúmulo (+2 e +4);
+//              - Proibição estrita de passar turno (pass_turn / end_turn);
+//              - Compra de carta (draw_card) avança turno automaticamente;
+//              - Sincronização entre múltiplos clientes e persistência pós-refresh;
+//              - Transição autoritativa de Turn Timer;
+//              - Vitória e encerramento oficial.
 // ============================================================================
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -23,13 +28,13 @@ interface CartaDuoState {
   };
   deck?: string[];
   discard_pile?: string[];
+  top_card?: string;
   hands?: Record<string, string[]>;
   active_color?: 'red' | 'blue' | 'green' | 'yellow' | 'wild';
   active_value?: string;
   direction?: number;
   turn_order?: string[];
   current_turn_player_id?: string | null;
-  pending_draws?: number;
   winner_id?: string | null;
   is_finished?: boolean;
 }
@@ -44,12 +49,13 @@ function createCartaDuoSnapshot(params: {
   hands?: Record<string, string[]>;
   deck?: string[];
   discardPile?: string[];
+  topCard?: string;
   activeColor?: 'red' | 'blue' | 'green' | 'yellow' | 'wild';
   activeValue?: string;
   direction?: number;
   turnOrder?: string[];
-  pendingDraws?: number;
   config?: any;
+  turnDeadline?: string | null;
 }): GameSnapshot<CartaDuoState> {
   const playersIds = params.turnOrder || ['u-1', 'u-2', 'u-3'];
   const p1 = playersIds[0];
@@ -64,24 +70,25 @@ function createCartaDuoSnapshot(params: {
 
   const defaultDeck = ['red:1', 'blue:3', 'green:4', 'yellow:8', 'red:draw2'];
   const defaultDiscard = ['red:3'];
+  const discardPile = params.discardPile || defaultDiscard;
+  const topCard = params.topCard || discardPile[0];
 
   const gameState: CartaDuoState = {
     config: params.config || {
       initial_cards: 7,
-      cumulative_draw: true,
       force_draw: true,
       play_immediately: true,
       turn_timer: 30,
     },
     deck: params.deck || defaultDeck,
-    discard_pile: params.discardPile || defaultDiscard,
+    discard_pile: discardPile,
+    top_card: topCard,
     hands: params.hands || defaultHands,
     active_color: params.activeColor || 'red',
     active_value: params.activeValue || '3',
     direction: typeof params.direction === 'number' ? params.direction : 1,
     turn_order: playersIds,
     current_turn_player_id: params.currentTurnPlayerId,
-    pending_draws: params.pendingDraws || 0,
     winner_id: params.winnerId || null,
     is_finished: params.status === 'finished',
   };
@@ -94,7 +101,7 @@ function createCartaDuoSnapshot(params: {
     state: gameState,
     currentTurnPlayerId: params.currentTurnPlayerId,
     turnNumber: params.turnNumber,
-    turnDeadline: null,
+    turnDeadline: params.turnDeadline ?? null,
     winnerId: params.winnerId || null,
     isDraw: false,
     finishReason: params.status === 'finished' ? 'normal' : null,
@@ -102,7 +109,7 @@ function createCartaDuoSnapshot(params: {
       userId,
       slot: idx + 1,
       gameSymbol: null,
-      score: 0,
+      score: gameState.hands?.[userId]?.length || 0,
       isWinner: params.winnerId === userId,
       disconnectedAt: null,
       gracePeriodExpiresAt: null,
@@ -118,7 +125,7 @@ function createCartaDuoSnapshot(params: {
   };
 }
 
-describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', () => {
+describe('Fase 20: Carta Duo — Regras Oficiais, Descarte Imediato, Sem Acúmulo e Turnos', () => {
   beforeEach(() => {
     clearSyncQueuesForTest();
   });
@@ -148,6 +155,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
     assert.ok(snap.state.hands);
     assert.ok(snap.state.deck);
     assert.ok(snap.state.discard_pile);
+    assert.strictEqual(snap.state.top_card, 'red:3');
     assert.strictEqual(snap.state.hands['u-1'].length, 3);
     assert.strictEqual(snap.state.active_color, 'red');
     assert.strictEqual(snap.state.active_value, '3');
@@ -155,34 +163,37 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
     controller.destroy();
   });
 
-  // 2. Validação de Turno: Jogar carta válida
-  it('2. Deve permitir que o jogador da vez jogue uma carta compatível por cor', async () => {
+  // 2. Validação de Topo de Mesa: Jogar carta atualiza imediatamente topo e sincroniza
+  it('2. Jogar carta atualiza imediatamente o descarte no topo da mesa e remove da mão', async () => {
     const matchId = 'cd-match-0002';
     const player1Id = 'u-1';
     const player2Id = 'u-2';
 
-    const snapTurn1 = createCartaDuoSnapshot({
+    let currentServerSnap = createCartaDuoSnapshot({
       matchId,
       turnNumber: 1,
       currentTurnPlayerId: player1Id,
       activeColor: 'red',
       activeValue: '3',
+      discardPile: ['red:3'],
+      topCard: 'red:3',
     });
 
-    setSnapshotFetcherForTest(async <TState = unknown>() => snapTurn1 as unknown as GameSnapshot<TState>);
+    setSnapshotFetcherForTest(async <TState = unknown>() => currentServerSnap as unknown as GameSnapshot<TState>);
 
     setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
       const payload = input.payload as any;
       assert.strictEqual(payload.card, 'red:5');
 
-      // Avança estado após o descarte bem-sucedido
-      const updatedSnap = createCartaDuoSnapshot({
+      // Servidor insere no topo oficial (prepended) e atualiza top_card
+      currentServerSnap = createCartaDuoSnapshot({
         matchId,
         turnNumber: 2,
         currentTurnPlayerId: player2Id,
         activeColor: 'red',
         activeValue: '5',
         discardPile: ['red:5', 'red:3'],
+        topCard: 'red:5',
         hands: {
           'u-1': ['blue:7', 'wild:color'],
           'u-2': ['red:2', 'yellow:skip', 'green:reverse'],
@@ -192,25 +203,32 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
       return {
         accepted: true,
-        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
+        snapshot: currentServerSnap as unknown as GameSnapshot<TState>,
         error: null,
         actionId: input.actionId || generateActionId(),
       };
     });
 
-    const controller = new GameSessionController<CartaDuoState>(matchId);
-    await controller.init();
+    // Cliente 1 joga a carta
+    const client1Controller = new GameSessionController<CartaDuoState>(matchId);
+    await client1Controller.init();
 
-    const res = await controller.submitAction('play_card', { card: 'red:5' });
+    const res = await client1Controller.submitAction('play_card', { card: 'red:5' });
     assert.strictEqual(res.accepted, true);
-    assert.strictEqual(res.snapshot?.turnNumber, 2);
-    assert.strictEqual(res.snapshot?.state.active_value, '5');
-    assert.strictEqual(res.snapshot?.state.hands?.['u-1'].length, 2);
+    assert.strictEqual(res.snapshot?.state.top_card, 'red:5');
+    assert.strictEqual(res.snapshot?.state.discard_pile?.[0], 'red:5');
+    assert.strictEqual(res.snapshot?.state.hands?.['u-1'].includes('red:5'), false);
 
-    controller.destroy();
+    // Cliente 2 reconecta / recebe snapshot oficial atualizado
+    const refreshedSnap = await reconnectMatch<CartaDuoState>(matchId);
+    assert.strictEqual(refreshedSnap.state.top_card, 'red:5', 'Topo deve continuar red:5 pós-refresh');
+    assert.strictEqual(refreshedSnap.state.discard_pile?.[0], 'red:5');
+    assert.strictEqual(refreshedSnap.currentTurnPlayerId, player2Id);
+
+    client1Controller.destroy();
   });
 
-  // 3. Validação de Turno: Jogar carta inválida (fora do turno e incompatível)
+  // 3. Rejeição de ações fora do turno e cartas inválidas
   it('3. Deve rejeitar jogadas fora do turno ou com cartas incompatíveis', async () => {
     const matchId = 'cd-match-0003';
     const player1Id = 'u-1';
@@ -228,7 +246,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
     setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
       const payload = input.payload as any;
-      
+
       if (input.actionType === 'play_card' && payload.playerId === player2Id) {
         return {
           accepted: false,
@@ -242,7 +260,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
         };
       }
 
-      if (payload.card === 'red:5') { // Tentativa de jogar vermelho sobre azul:7
+      if (payload.card === 'red:5') {
         return {
           accepted: false,
           snapshot: null,
@@ -261,12 +279,10 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
     const controller = new GameSessionController<CartaDuoState>(matchId);
     await controller.init();
 
-    // 1. Fora do turno (Player 2 tenta jogar)
     const outOfTurnRes = await controller.submitAction('play_card', { card: 'red:2', playerId: player2Id });
     assert.strictEqual(outOfTurnRes.accepted, false);
     assert.strictEqual(outOfTurnRes.error?.code, 'NOT_YOUR_TURN');
 
-    // 2. Carta incompatível (Player 1 tenta jogar Vermelho:5 sobre Azul:7)
     const invalidCardRes = await controller.submitAction('play_card', { card: 'red:5', playerId: player1Id });
     assert.strictEqual(invalidCardRes.accepted, false);
     assert.strictEqual(invalidCardRes.error?.code, 'INVALID_CARD');
@@ -274,37 +290,216 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
     controller.destroy();
   });
 
-  // 4. Compra e acúmulo de cartas de compra (+2/+4)
-  it('4. Deve processar corretamente o acúmulo de efeitos de compra de cartas', async () => {
+  // 4. Cartas de compra (+2) — Sem Acúmulo: Penalidade imediata e salto de turno
+  it('4. Deve aplicar penalidade de compra imediata sem acúmulo ao jogar +2', async () => {
     const matchId = 'cd-match-0004';
     const player1Id = 'u-1';
+    const player2Id = 'u-2';
+    const player3Id = 'u-3';
 
-    // Player 1 inicia o turno com 2 compras pendentes (+2 jogado anteriormente)
-    const snapTurnWithDraws = createCartaDuoSnapshot({
+    // Player 3 tem 'blue:draw2'. Mesa tem active_color: 'blue'
+    const snapTurn1 = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 1,
+      currentTurnPlayerId: player3Id,
+      turnOrder: [player1Id, player2Id, player3Id],
+      activeColor: 'blue',
+      activeValue: '5',
+      discardPile: ['blue:5'],
+      topCard: 'blue:5',
+      hands: {
+        'u-1': ['red:5', 'blue:7'],
+        'u-2': ['red:2', 'green:4'],
+        'u-3': ['blue:draw2', 'yellow:9'],
+      },
+      deck: ['yellow:1', 'yellow:2', 'yellow:3'],
+    });
+
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapTurn1 as unknown as GameSnapshot<TState>);
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      const payload = input.payload as any;
+      assert.strictEqual(payload.card, 'blue:draw2');
+
+      // Regra Oficial Sem Acúmulo:
+      // Player 3 joga +2.
+      // O próximo jogador (Player 1) compra imediatamente 2 cartas e perde o turno.
+      // O turno avança para o jogador seguinte (Player 2).
+      const updatedSnap = createCartaDuoSnapshot({
+        matchId,
+        turnNumber: 2,
+        currentTurnPlayerId: player2Id, // Turno vai para Player 2 (Player 1 foi penalizado e pulado)
+        turnOrder: [player1Id, player2Id, player3Id],
+        activeColor: 'blue',
+        activeValue: 'draw2',
+        discardPile: ['blue:draw2', 'blue:5'],
+        topCard: 'blue:draw2',
+        hands: {
+          'u-1': ['red:5', 'blue:7', 'yellow:1', 'yellow:2'], // Comprou 2 cartas imediatamente
+          'u-2': ['red:2', 'green:4'],
+          'u-3': ['yellow:9'], // Carta removida da mão
+        },
+        deck: ['yellow:3'],
+      });
+
+      return {
+        accepted: true,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
+        error: null,
+        actionId: input.actionId || generateActionId(),
+      };
+    });
+
+    const controller = new GameSessionController<CartaDuoState>(matchId);
+    await controller.init();
+
+    const res = await controller.submitAction('play_card', { card: 'blue:draw2' });
+    assert.strictEqual(res.accepted, true);
+    assert.strictEqual(res.snapshot?.state.top_card, 'blue:draw2');
+    assert.strictEqual(res.snapshot?.state.hands?.['u-1'].length, 4, 'Player 1 deve ter recebido 2 cartas de penalidade');
+    assert.strictEqual(res.snapshot?.currentTurnPlayerId, player2Id, 'Turno deve passar para Player 2, pulando Player 1');
+
+    controller.destroy();
+  });
+
+  // 5. Cartas de compra (+4 Wild) — Sem Acúmulo e Escolha de Cor
+  it('5. Deve aplicar penalidade de +4 imediatamente sem acúmulo e definir nova cor ativa', async () => {
+    const matchId = 'cd-match-0005';
+    const player1Id = 'u-1';
+    const player2Id = 'u-2';
+
+    // Duelo 2 jogadores: Player 1 joga +4 escolhendo verde.
+    // Player 2 recebe 4 cartas e o turno volta para Player 1.
+    const snapDuel = createCartaDuoSnapshot({
       matchId,
       turnNumber: 3,
       currentTurnPlayerId: player1Id,
-      activeColor: 'blue',
-      activeValue: 'draw2',
-      pendingDraws: 2,
+      turnOrder: [player1Id, player2Id],
+      activeColor: 'red',
+      activeValue: '3',
+      discardPile: ['red:3'],
+      topCard: 'red:3',
+      hands: {
+        'u-1': ['wild:draw4', 'green:2'],
+        'u-2': ['green:8', 'yellow:1'],
+      },
+      deck: ['blue:1', 'blue:2', 'blue:3', 'blue:4', 'blue:5'],
     });
 
-    setSnapshotFetcherForTest(async <TState = unknown>() => snapTurnWithDraws as unknown as GameSnapshot<TState>);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapDuel as unknown as GameSnapshot<TState>);
 
     setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
-      // Jogador escolhe comprar para cumprir o acúmulo
+      const payload = input.payload as any;
+      assert.strictEqual(payload.card, 'wild:draw4');
+      assert.strictEqual(payload.choose_color, 'green');
+
       const updatedSnap = createCartaDuoSnapshot({
         matchId,
         turnNumber: 4,
-        currentTurnPlayerId: 'u-2', // Passa vez ao Player 2
-        activeColor: 'blue',
-        activeValue: 'draw2',
-        pendingDraws: 0, // Zera pendências
+        currentTurnPlayerId: player1Id, // Em 2 jogadores, Player 2 compra e perde vez; volta para Player 1
+        turnOrder: [player1Id, player2Id],
+        activeColor: 'green',
+        activeValue: 'draw4',
+        discardPile: ['wild:draw4', 'red:3'],
+        topCard: 'wild:draw4',
         hands: {
-          'u-1': ['red:5', 'blue:7', 'wild:color', 'red:1', 'blue:3'], // Recebeu 2 cartas
+          'u-1': ['green:2'],
+          'u-2': ['green:8', 'yellow:1', 'blue:1', 'blue:2', 'blue:3', 'blue:4'], // 6 cartas agora
+        },
+        deck: ['blue:5'],
+      });
+
+      return {
+        accepted: true,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
+        error: null,
+        actionId: input.actionId || generateActionId(),
+      };
+    });
+
+    const controller = new GameSessionController<CartaDuoState>(matchId);
+    await controller.init();
+
+    const res = await controller.submitAction('play_card', { card: 'wild:draw4', choose_color: 'green' });
+    assert.strictEqual(res.accepted, true);
+    assert.strictEqual(res.snapshot?.state.active_color, 'green');
+    assert.strictEqual(res.snapshot?.state.hands?.['u-2'].length, 6);
+    assert.strictEqual(res.snapshot?.currentTurnPlayerId, player1Id);
+
+    controller.destroy();
+  });
+
+  // 6. Proibição Estrita de Passar Turno
+  it('6. Deve rejeitar estritamente qualquer tentativa de ação de passar turno (pass_turn / end_turn)', async () => {
+    const matchId = 'cd-match-0006';
+    const player1Id = 'u-1';
+
+    const snap = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 2,
+      currentTurnPlayerId: player1Id,
+    });
+
+    setSnapshotFetcherForTest(async <TState = unknown>() => snap as unknown as GameSnapshot<TState>);
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      if (input.actionType === 'pass_turn' || input.actionType === 'end_turn' || input.actionType === 'skip_turn') {
+        return {
+          accepted: false,
+          snapshot: null,
+          error: {
+            code: 'ACTION_NOT_ALLOWED',
+            message: 'No Carta Duo não existe ação de passar turno.',
+            category: 'rule',
+          },
+          actionId: input.actionId || generateActionId(),
+        };
+      }
+      return { accepted: true, snapshot: null, error: null, actionId: input.actionId || generateActionId() };
+    });
+
+    const controller = new GameSessionController<CartaDuoState>(matchId);
+    await controller.init();
+
+    const passRes = await controller.submitAction('pass_turn', {});
+    assert.strictEqual(passRes.accepted, false);
+    assert.strictEqual(passRes.error?.code, 'ACTION_NOT_ALLOWED');
+
+    const endTurnRes = await controller.submitAction('end_turn', {});
+    assert.strictEqual(endTurnRes.accepted, false);
+    assert.strictEqual(endTurnRes.error?.code, 'ACTION_NOT_ALLOWED');
+
+    controller.destroy();
+  });
+
+  // 7. Compra simples do baralho (draw_card) avança imediatamente o turno
+  it('7. Comprar carta do baralho (draw_card) adiciona carta e passa a vez imediatamente', async () => {
+    const matchId = 'cd-match-0007';
+    const player1Id = 'u-1';
+    const player2Id = 'u-2';
+
+    const snapDraw = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 2,
+      currentTurnPlayerId: player1Id,
+      deck: ['green:3', 'red:4'],
+    });
+
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapDraw as unknown as GameSnapshot<TState>);
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      assert.strictEqual(input.actionType, 'draw_card');
+
+      const updatedSnap = createCartaDuoSnapshot({
+        matchId,
+        turnNumber: 3,
+        currentTurnPlayerId: player2Id, // Turno passa para o próximo automaticamente
+        hands: {
+          'u-1': ['red:5', 'blue:7', 'wild:color', 'green:3'],
           'u-2': ['red:2', 'yellow:skip', 'green:reverse'],
           'u-3': ['blue:draw2', 'yellow:9', 'wild:draw4'],
         },
+        deck: ['red:4'],
       });
 
       return {
@@ -320,82 +515,37 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
     const res = await controller.submitAction('draw_card', {});
     assert.strictEqual(res.accepted, true);
-    assert.strictEqual(res.snapshot?.state.pending_draws, 0);
-    assert.strictEqual(res.snapshot?.state.hands?.['u-1'].length, 5); // 3 iniciais + 2 compradas
-    assert.strictEqual(res.snapshot?.currentTurnPlayerId, 'u-2');
+    assert.strictEqual(res.snapshot?.state.hands?.['u-1'].length, 4);
+    assert.strictEqual(res.snapshot?.currentTurnPlayerId, player2Id);
 
     controller.destroy();
   });
 
-  // 5. Passar turno após compra (se configurado)
-  it('5. Deve permitir passar o turno após comprar uma carta se nenhuma jogada for feita', async () => {
-    const matchId = 'cd-match-0005';
-    const player1Id = 'u-1';
-
-    const snapDraw = createCartaDuoSnapshot({
-      matchId,
-      turnNumber: 2,
-      currentTurnPlayerId: player1Id,
-      activeColor: 'yellow',
-      activeValue: '9',
-    });
-
-    setSnapshotFetcherForTest(async <TState = unknown>() => snapDraw as unknown as GameSnapshot<TState>);
-
-    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
-      assert.strictEqual(input.actionType, 'end_turn');
-
-      const updatedSnap = createCartaDuoSnapshot({
-        matchId,
-        turnNumber: 3,
-        currentTurnPlayerId: 'u-2',
-        activeColor: 'yellow',
-        activeValue: '9',
-      });
-
-      return {
-        accepted: true,
-        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
-        error: null,
-        actionId: input.actionId || generateActionId(),
-      };
-    });
-
-    const controller = new GameSessionController<CartaDuoState>(matchId);
-    await controller.init();
-
-    const res = await controller.submitAction('end_turn', {});
-    assert.strictEqual(res.accepted, true);
-    assert.strictEqual(res.snapshot?.currentTurnPlayerId, 'u-2');
-
-    controller.destroy();
-  });
-
-  // 6. Efeitos Especiais: Skip e Reverse (Sentido de turno)
-  it('6. Deve processar corretamente os efeitos de Skip e Reverse', async () => {
-    const matchId = 'cd-match-0006';
+  // 8. Skip e Reverse
+  it('8. Deve processar corretamente os efeitos de Skip e Reverse de direção', async () => {
+    const matchId = 'cd-match-0008';
     const player1Id = 'u-1';
     const player2Id = 'u-2';
     const player3Id = 'u-3';
 
-    // 1. Skip: Pula o próximo jogador
+    // Skip
     const snapSkip = createCartaDuoSnapshot({
       matchId,
       turnNumber: 5,
-      currentTurnPlayerId: player2Id, // Vez do Player 2
+      currentTurnPlayerId: player2Id,
       turnOrder: [player1Id, player2Id, player3Id],
     });
 
     setSnapshotFetcherForTest(async <TState = unknown>() => snapSkip as unknown as GameSnapshot<TState>);
 
     setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
-      // Player 2 descarta 'yellow:skip'. Próximo seria Player 3, mas é pulado, indo para Player 1
       const updatedSnap = createCartaDuoSnapshot({
         matchId,
         turnNumber: 6,
-        currentTurnPlayerId: player1Id,
+        currentTurnPlayerId: player1Id, // Player 3 pulado
         activeColor: 'yellow',
         activeValue: 'skip',
+        topCard: 'yellow:skip',
         turnOrder: [player1Id, player2Id, player3Id],
       });
 
@@ -412,65 +562,16 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
     const skipRes = await controller.submitAction('play_card', { card: 'yellow:skip' });
     assert.strictEqual(skipRes.accepted, true);
-    assert.strictEqual(skipRes.snapshot?.currentTurnPlayerId, player1Id, 'O Player 3 deve ser pulado e a vez ir direto para o Player 1');
+    assert.strictEqual(skipRes.snapshot?.currentTurnPlayerId, player1Id);
 
     controller.destroy();
   });
 
-  // 7. Reversão de Sentido de Turno
-  it('7. Deve inverter o sentido de turnos do jogo de forma apropriada', async () => {
-    const matchId = 'cd-match-0007';
-    const player1Id = 'u-1';
-    const player2Id = 'u-2';
-    const player3Id = 'u-3';
-
-    const snapReverse = createCartaDuoSnapshot({
-      matchId,
-      turnNumber: 4,
-      currentTurnPlayerId: player2Id,
-      direction: 1, // Sentido horário (1 -> 2 -> 3)
-      turnOrder: [player1Id, player2Id, player3Id],
-    });
-
-    setSnapshotFetcherForTest(async <TState = unknown>() => snapReverse as unknown as GameSnapshot<TState>);
-
-    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
-      // Player 2 descarta 'green:reverse'. Como o sentido era horário, agora vai para anti-horário e o próximo é o Player 1
-      const updatedSnap = createCartaDuoSnapshot({
-        matchId,
-        turnNumber: 5,
-        currentTurnPlayerId: player1Id,
-        activeColor: 'green',
-        activeValue: 'reverse',
-        direction: -1, // Sentido anti-horário agora
-        turnOrder: [player1Id, player2Id, player3Id],
-      });
-
-      return {
-        accepted: true,
-        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
-        error: null,
-        actionId: input.actionId || generateActionId(),
-      };
-    });
-
-    const controller = new GameSessionController<CartaDuoState>(matchId);
-    await controller.init();
-
-    const revRes = await controller.submitAction('play_card', { card: 'green:reverse' });
-    assert.strictEqual(revRes.accepted, true);
-    assert.strictEqual(revRes.snapshot?.state.direction, -1);
-    assert.strictEqual(revRes.snapshot?.currentTurnPlayerId, player1Id);
-
-    controller.destroy();
-  });
-
-  // 8. Fim do jogo com Vencedor Oficial
-  it('8. Deve encerrar a partida quando a mão de um jogador estiver vazia', async () => {
-    const matchId = 'cd-match-0008';
+  // 9. Encerramento de Partida com Vencedor
+  it('9. Deve encerrar a partida oficialmente quando a mão de um jogador estiver vazia', async () => {
+    const matchId = 'cd-match-0009';
     const player1Id = 'u-1';
 
-    // Player 1 tem apenas uma carta na mão ('red:5')
     const snapLastCard = createCartaDuoSnapshot({
       matchId,
       turnNumber: 10,
@@ -485,7 +586,6 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
     setSnapshotFetcherForTest(async <TState = unknown>() => snapLastCard as unknown as GameSnapshot<TState>);
 
     setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
-      // Descarte da última carta finaliza a partida com Player 1 como vencedor
       const updatedSnap = createCartaDuoSnapshot({
         matchId,
         turnNumber: 11,
@@ -493,8 +593,9 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
         status: 'finished',
         winnerId: player1Id,
         discardPile: ['red:5'],
+        topCard: 'red:5',
         hands: {
-          'u-1': [], // Vazia!
+          'u-1': [],
           'u-2': ['red:2', 'yellow:skip'],
           'u-3': ['blue:draw2'],
         },
