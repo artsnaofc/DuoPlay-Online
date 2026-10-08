@@ -48,10 +48,10 @@ VALUES
         'Carta Duo',
         'Jogo de cartas de estratégia e turnos onde o melhor deck vence.',
         2,
-        2,
-        false,
+        6,
+        true,
         'turn_based',
-        '{"category_label": "Turnos", "requires_timer": true, "deck_size": 20}'::jsonb
+        '{"category_label": "Turnos", "requires_timer": true, "initial_cards": 7}'::jsonb
     ),
     (
         'billiards',

@@ -7,6 +7,7 @@
 
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { RoomDTO, RoomMemberDTO } from '@/types/multiplayer';
+import { getGameDefinition } from '@/multiplayer/registry/index';
 
 export interface RoomOperationResult<T = unknown> {
   success: boolean;
@@ -92,12 +93,15 @@ export async function createRoom(
   }
 
   try {
+    const gameDef = getGameDefinition(gameId);
+    const maxMembers = gameDef?.maxPlayers || 2;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase.rpc as any)('create_room', {
       p_game_id: gameId,
       p_name: name,
       p_is_private: true,
-      p_max_members: 2,
+      p_max_members: maxMembers,
     });
 
     if (error) {
