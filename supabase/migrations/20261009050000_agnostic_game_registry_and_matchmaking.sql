@@ -89,7 +89,7 @@ BEGIN
         room_id,
         user_id,
         role,
-        slot,
+        slot_number,
         game_symbol,
         is_ready,
         joined_at
@@ -111,7 +111,7 @@ BEGIN
                 'room_id', v_room.id,
                 'user_id', v_caller_id,
                 'role', 'player',
-                'slot', 1,
+                'slot_number', 1,
                 'game_symbol', CASE WHEN v_game.id = 'tic_tac_toe' THEN 'X' ELSE '1' END,
                 'is_ready', true
             )

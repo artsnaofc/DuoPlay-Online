@@ -137,7 +137,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       currentTurnPlayerId: 'u-1',
     });
 
-    setSnapshotFetcherForTest(async () => initialSnap);
+    setSnapshotFetcherForTest(async <TState = unknown>() => initialSnap as unknown as GameSnapshot<TState>);
 
     const controller = new GameSessionController<CartaDuoState>(matchId);
     const snap = await controller.init();
@@ -169,10 +169,10 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       activeValue: '3',
     });
 
-    setSnapshotFetcherForTest(async () => snapTurn1);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapTurn1 as unknown as GameSnapshot<TState>);
 
-    setActionSubmitterForTest(async (input: SubmitActionInput<any>): Promise<ActionResult<CartaDuoState>> => {
-      const payload = input.payload;
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      const payload = input.payload as any;
       assert.strictEqual(payload.card, 'red:5');
 
       // Avança estado após o descarte bem-sucedido
@@ -192,7 +192,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
       return {
         accepted: true,
-        snapshot: updatedSnap,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
         error: null,
         actionId: input.actionId || generateActionId(),
       };
@@ -224,10 +224,10 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       activeValue: '7',
     });
 
-    setSnapshotFetcherForTest(async () => snapTurn1);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapTurn1 as unknown as GameSnapshot<TState>);
 
-    setActionSubmitterForTest(async (input: SubmitActionInput<any>): Promise<ActionResult<CartaDuoState>> => {
-      const payload = input.payload;
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      const payload = input.payload as any;
       
       if (input.actionType === 'play_card' && payload.playerId === player2Id) {
         return {
@@ -289,9 +289,9 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       pendingDraws: 2,
     });
 
-    setSnapshotFetcherForTest(async () => snapTurnWithDraws);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapTurnWithDraws as unknown as GameSnapshot<TState>);
 
-    setActionSubmitterForTest(async (input: SubmitActionInput<any>): Promise<ActionResult<CartaDuoState>> => {
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
       // Jogador escolhe comprar para cumprir o acúmulo
       const updatedSnap = createCartaDuoSnapshot({
         matchId,
@@ -309,7 +309,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
       return {
         accepted: true,
-        snapshot: updatedSnap,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
         error: null,
         actionId: input.actionId || generateActionId(),
       };
@@ -340,9 +340,9 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       activeValue: '9',
     });
 
-    setSnapshotFetcherForTest(async () => snapDraw);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapDraw as unknown as GameSnapshot<TState>);
 
-    setActionSubmitterForTest(async (input: SubmitActionInput<any>): Promise<ActionResult<CartaDuoState>> => {
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
       assert.strictEqual(input.actionType, 'end_turn');
 
       const updatedSnap = createCartaDuoSnapshot({
@@ -355,7 +355,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
       return {
         accepted: true,
-        snapshot: updatedSnap,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
         error: null,
         actionId: input.actionId || generateActionId(),
       };
@@ -386,9 +386,9 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       turnOrder: [player1Id, player2Id, player3Id],
     });
 
-    setSnapshotFetcherForTest(async () => snapSkip);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapSkip as unknown as GameSnapshot<TState>);
 
-    setActionSubmitterForTest(async (input: SubmitActionInput<any>): Promise<ActionResult<CartaDuoState>> => {
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
       // Player 2 descarta 'yellow:skip'. Próximo seria Player 3, mas é pulado, indo para Player 1
       const updatedSnap = createCartaDuoSnapshot({
         matchId,
@@ -401,7 +401,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
       return {
         accepted: true,
-        snapshot: updatedSnap,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
         error: null,
         actionId: input.actionId || generateActionId(),
       };
@@ -432,9 +432,9 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       turnOrder: [player1Id, player2Id, player3Id],
     });
 
-    setSnapshotFetcherForTest(async () => snapReverse);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapReverse as unknown as GameSnapshot<TState>);
 
-    setActionSubmitterForTest(async (input: SubmitActionInput<any>): Promise<ActionResult<CartaDuoState>> => {
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
       // Player 2 descarta 'green:reverse'. Como o sentido era horário, agora vai para anti-horário e o próximo é o Player 1
       const updatedSnap = createCartaDuoSnapshot({
         matchId,
@@ -448,7 +448,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
       return {
         accepted: true,
-        snapshot: updatedSnap,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
         error: null,
         actionId: input.actionId || generateActionId(),
       };
@@ -482,9 +482,9 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
       },
     });
 
-    setSnapshotFetcherForTest(async () => snapLastCard);
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapLastCard as unknown as GameSnapshot<TState>);
 
-    setActionSubmitterForTest(async (input: SubmitActionInput<any>): Promise<ActionResult<CartaDuoState>> => {
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
       // Descarte da última carta finaliza a partida com Player 1 como vencedor
       const updatedSnap = createCartaDuoSnapshot({
         matchId,
@@ -502,7 +502,7 @@ describe('Fase 20: Carta Duo — Regras de Jogo e Sincronização de Turnos', ()
 
       return {
         accepted: true,
-        snapshot: updatedSnap,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
         error: null,
         actionId: input.actionId || generateActionId(),
       };
