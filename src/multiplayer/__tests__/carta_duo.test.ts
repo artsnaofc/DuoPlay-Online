@@ -38,7 +38,7 @@ interface CartaDuoState {
 function createCartaDuoSnapshot(params: {
   matchId: string;
   turnNumber: number;
-  currentTurnPlayerId: string;
+  currentTurnPlayerId: string | null;
   status?: 'in_progress' | 'finished' | 'abandoned';
   winnerId?: string | null;
   hands?: Record<string, string[]>;
