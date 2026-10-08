@@ -11,24 +11,42 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 1. Ativação Oficial do Jogo no Catálogo
+-- 1. Ativação Oficial do Jogo no Catálogo (Upsert Idempotente)
 -- ----------------------------------------------------------------------------
-UPDATE public.games
-SET is_active = true,
-    name = 'Cobrinha Competitiva',
-    description = 'Arena multiplayer em tempo real onde 2 cobras disputam espaço, comida e sobrevivência.',
-    min_players = 2,
-    max_players = 2,
-    game_type = 'real_time',
-    config = jsonb_build_object(
+INSERT INTO public.games (
+    id,
+    name,
+    description,
+    min_players,
+    max_players,
+    game_type,
+    config,
+    is_active
+) VALUES (
+    'snake',
+    'Cobrinha Competitiva',
+    'Arena multiplayer em tempo real onde 2 cobras disputam espaço, comida e sobrevivência.',
+    2,
+    2,
+    'real_time',
+    jsonb_build_object(
         'category_label', 'Tempo Real',
         'requires_timer', false,
         'grid_width', 20,
         'grid_height', 20,
         'tick_rate_ms', 150,
         'countdown_seconds', 3
-    )
-WHERE id = 'snake';
+    ),
+    true
+)
+ON CONFLICT (id) DO UPDATE
+SET is_active = true,
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    min_players = EXCLUDED.min_players,
+    max_players = EXCLUDED.max_players,
+    game_type = EXCLUDED.game_type,
+    config = EXCLUDED.config;
 
 -- ----------------------------------------------------------------------------
 -- 2. Inicializador de Estado Autoritativo do Snake (2 Jogadores)
@@ -944,8 +962,10 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 7. Atualizar respond_to_rematch para Suporte ao Snake
 -- ----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.respond_to_rematch(UUID, BOOLEAN);
+
 CREATE OR REPLACE FUNCTION public.respond_to_rematch(
-    p_request_id UUID,
+    p_rematch_request_id UUID,
     p_accept BOOLEAN
 )
 RETURNS JSONB
@@ -970,7 +990,7 @@ BEGIN
         RAISE EXCEPTION 'UNAUTHENTICATED: Apenas usuários autenticados podem responder a pedidos de revanche.' USING ERRCODE = 'P0001';
     END IF;
 
-    SELECT * INTO v_req FROM public.rematch_requests WHERE id = p_request_id FOR UPDATE;
+    SELECT * INTO v_req FROM public.rematch_requests WHERE id = p_rematch_request_id FOR UPDATE;
     IF v_req.id IS NULL THEN
         RAISE EXCEPTION 'REMATCH_NOT_FOUND: Pedido de revanche não encontrado.' USING ERRCODE = 'P0002';
     END IF;
@@ -1000,7 +1020,10 @@ BEGIN
         UPDATE public.rematch_requests SET status = 'declined', updated_at = clock_timestamp() WHERE id = v_req.id;
         RETURN jsonb_build_object(
             'success', true,
-            'data', jsonb_build_object('request_id', v_req.id, 'status', 'declined'),
+            'data', jsonb_build_object(
+                'status', 'declined',
+                'rematch_request_id', v_req.id
+            ),
             'error', null
         );
     END IF;
@@ -1056,11 +1079,15 @@ BEGIN
     RETURN jsonb_build_object(
         'success', true,
         'data', jsonb_build_object(
-            'request_id', v_req.id,
             'status', 'accepted',
-            'new_match_id', v_new_match_id
+            'rematch_request_id', v_req.id,
+            'new_match_id', v_new_match_id,
+            'original_match_id', v_req.original_match_id
         ),
         'error', null
     );
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.respond_to_rematch(UUID, BOOLEAN) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.respond_to_rematch(UUID, BOOLEAN) TO authenticated;

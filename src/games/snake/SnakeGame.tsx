@@ -69,6 +69,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   const [myProfile, setMyProfile] = useState<PublicPlayerProfile | null>(null);
   const [actionErrorMsg, setActionErrorMsg] = useState<string | null>(null);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
+  const [predictedDirection, setPredictedDirection] = useState<SnakeDirection | null>(null);
 
   // Buffer de direção pendente no cliente para prevenir múltiplos inputs no mesmo tick
   const pendingDirectionRef = useRef<SnakeDirection | null>(null);
@@ -147,7 +148,9 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
         return; // Proibido inversão direta ou repetição desnecessária
       }
 
+      // Feedback visual e lógico imediato (Client-side prediction)
       pendingDirectionRef.current = requestedDir;
+      setPredictedDirection(requestedDir);
 
       try {
         const res = await submitAction('snake_set_direction', {
@@ -157,12 +160,14 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
 
         if (!res.accepted) {
           pendingDirectionRef.current = null;
+          setPredictedDirection(null);
           if (res.error?.message) {
             setActionErrorMsg(res.error.message);
           }
         }
       } catch {
         pendingDirectionRef.current = null;
+        setPredictedDirection(null);
       }
     },
     [currentUserId, gameState, mySnake, submitAction]
@@ -267,6 +272,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   useEffect(() => {
     if (gameState?.tick) {
       pendingDirectionRef.current = null;
+      setPredictedDirection(null);
     }
   }, [gameState?.tick]);
 
@@ -297,6 +303,13 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
       setIsClaimingAbandonment(false);
     }
   };
+
+  // Reconciliação se o estado oficial já incorporou a nova direção
+  useEffect(() => {
+    if (mySnake?.direction && predictedDirection === mySnake.direction) {
+      setPredictedDirection(null);
+    }
+  }, [mySnake?.direction, predictedDirection]);
 
   // 6. Renders de Loading e Erro Inicial
   if (isLoading && !snapshot) {
@@ -466,14 +479,20 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
 
       {/* 3. Arena Central com Grade e Cobras */}
       <main className="flex-1 flex flex-col items-center justify-center min-h-0">
-        {gameState && <SnakeArenaView state={gameState} myUserId={currentUserId} />}
+        {gameState && (
+          <SnakeArenaView
+            state={gameState}
+            myUserId={currentUserId}
+            predictedDirection={predictedDirection}
+          />
+        )}
       </main>
 
       {/* 4. Controles Mobile (D-Pad Touch) */}
       <footer className="mt-auto pt-2">
         <SnakeMobileControls
           onDirectionChange={handleDirectionInput}
-          currentDirection={mySnake?.direction}
+          currentDirection={predictedDirection || mySnake?.direction}
           disabled={isFinished || !mySnake?.alive}
         />
       </footer>

@@ -6,14 +6,19 @@
 // ============================================================================
 
 import React from 'react';
-import type { SnakeGameState } from './types';
+import type { SnakeGameState, SnakeDirection } from './types';
 
 interface SnakeArenaViewProps {
   state: SnakeGameState;
   myUserId: string | null;
+  predictedDirection?: SnakeDirection | null;
 }
 
-export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({ state, myUserId }) => {
+export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({
+  state,
+  myUserId,
+  predictedDirection,
+}) => {
   const { gridWidth, gridHeight } = state.config;
   const cellSize = 20; // Unidade lógica SVG
   const width = gridWidth * cellSize;
@@ -53,7 +58,10 @@ export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({ state, myUserId 
 
           {/* Comida (Orbe brilhante) */}
           {state.food && (
-            <g transform={`translate(${state.food.x * cellSize}, ${state.food.y * cellSize})`}>
+            <g
+              transform={`translate(${state.food.x * cellSize}, ${state.food.y * cellSize})`}
+              className="transition-transform duration-75"
+            >
               <circle
                 cx={cellSize / 2}
                 cy={cellSize / 2}
@@ -70,12 +78,13 @@ export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({ state, myUserId 
             </g>
           )}
 
-          {/* Renderização das Cobras */}
+          {/* Renderização das Cobras com visual imediato */}
           {Object.entries(state.snakes).map(([userId, snake]) => {
             const isMe = userId === myUserId;
             const isAlive = snake.alive;
             const primaryColor = isMe ? '#10b981' : '#f59e0b';
             const headColor = isMe ? '#34d399' : '#fbbf24';
+            const effectiveDir = (isMe && predictedDirection) ? predictedDirection : (snake.nextDirection || snake.direction);
 
             return (
               <g key={userId} opacity={isAlive ? 1 : 0.45}>
@@ -91,21 +100,57 @@ export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({ state, myUserId 
                     fill={primaryColor}
                     stroke="#020617"
                     strokeWidth="0.8"
+                    className="transition-all duration-75 ease-linear"
                   />
                 ))}
 
-                {/* Cabeça da cobra */}
+                {/* Cabeça da cobra com indicador de direção e transição suave */}
                 {snake.body[0] && (
-                  <rect
-                    x={snake.body[0].x * cellSize + 1}
-                    y={snake.body[0].y * cellSize + 1}
-                    width={cellSize - 2}
-                    height={cellSize - 2}
-                    rx={5}
-                    fill={headColor}
-                    stroke="#ffffff"
-                    strokeWidth="1.2"
-                  />
+                  <g className="transition-all duration-75 ease-linear">
+                    <rect
+                      x={snake.body[0].x * cellSize + 1}
+                      y={snake.body[0].y * cellSize + 1}
+                      width={cellSize - 2}
+                      height={cellSize - 2}
+                      rx={5}
+                      fill={headColor}
+                      stroke="#ffffff"
+                      strokeWidth="1.2"
+                    />
+                    {/* Indicador direcional na cabeça da cobra */}
+                    {effectiveDir === 'UP' && (
+                      <circle
+                        cx={snake.body[0].x * cellSize + cellSize / 2}
+                        cy={snake.body[0].y * cellSize + 4}
+                        r={2}
+                        fill="#0f172a"
+                      />
+                    )}
+                    {effectiveDir === 'DOWN' && (
+                      <circle
+                        cx={snake.body[0].x * cellSize + cellSize / 2}
+                        cy={snake.body[0].y * cellSize + cellSize - 4}
+                        r={2}
+                        fill="#0f172a"
+                      />
+                    )}
+                    {effectiveDir === 'LEFT' && (
+                      <circle
+                        cx={snake.body[0].x * cellSize + 4}
+                        cy={snake.body[0].y * cellSize + cellSize / 2}
+                        r={2}
+                        fill="#0f172a"
+                      />
+                    )}
+                    {effectiveDir === 'RIGHT' && (
+                      <circle
+                        cx={snake.body[0].x * cellSize + cellSize - 4}
+                        cy={snake.body[0].y * cellSize + cellSize / 2}
+                        r={2}
+                        fill="#0f172a"
+                      />
+                    )}
+                  </g>
                 )}
               </g>
             );
