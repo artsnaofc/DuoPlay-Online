@@ -10,12 +10,16 @@ import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
 import { CartaDuoGame } from '@/games/carta-duo/CartaDuoGame';
 import { SnakeGame } from '@/games/snake/SnakeGame';
 
-// Caminhos estáticos para as artes oficiais para evitar falhas de importação de extensão (.jpg) no TSX/Node Test Runner
-const ticTacToeCover = '/src/assets/images/game_cover_tic_tac_toe_1791338712522.jpg';
-const ticTacToeArtwork = '/src/assets/images/tic_tac_toe_artwork_1791338972542.jpg';
-const pongCover = '/src/assets/images/game_cover_pong_arcade_1791338723540.jpg';
-const snakeCover = '/src/assets/images/game_cover_snake_arena_1791338733139.jpg';
-const cartaDuoCover = '/src/assets/images/game_cover_carta_duo_1791471015960.jpg';
+// Caminhos estáticos públicos (/images/...) para garantir funcionamento robusto na Vercel em produção
+const ticTacToeCover = '/images/tic_tac_toe_cover_1791476928538.jpg';
+const ticTacToeArtwork = '/images/tic_tac_toe_artwork_1791338972542.jpg';
+const pongCover = '/images/pong_arcade_cover_1791476938506.jpg';
+const snakeCover = '/images/snake_arena_cover_1791476948757.jpg';
+const cartaDuoCover = '/images/game_cover_carta_duo_1791471015960.jpg';
+const billiardsCover = '/images/billiards_8_ball_cover_1791477085001.jpg';
+const dominoCover = '/images/domino_duo_cover_1791477094936.jpg';
+const hangmanCover = '/images/hangman_game_cover_1791477102833.jpg';
+const adedonhaCover = '/images/adedonha_game_cover_1791477111057.jpg';
 
 export type GameType = 'real_time' | 'turn_based' | 'words' | 'physics';
 
@@ -160,6 +164,7 @@ const REGISTRY: Record<string, GameDefinition> = {
       'Placar automatizado pelo servidor',
     ],
     isAvailable: false,
+    coverImage: billiardsCover,
     config: {
       category_label: 'Física',
       requires_timer: true,
@@ -183,6 +188,7 @@ const REGISTRY: Record<string, GameDefinition> = {
       'Partidas dinâmicas de raciocínio lógico',
     ],
     isAvailable: false,
+    coverImage: dominoCover,
     config: {
       category_label: 'Turnos',
       requires_timer: true,
@@ -206,6 +212,7 @@ const REGISTRY: Record<string, GameDefinition> = {
       'Dicas temáticas baseadas na partida',
     ],
     isAvailable: false,
+    coverImage: hangmanCover,
     config: {
       category_label: 'Palavras',
       requires_timer: true,
@@ -229,6 +236,7 @@ const REGISTRY: Record<string, GameDefinition> = {
       'Cronômetro dinâmico e pontuação atômica',
     ],
     isAvailable: false,
+    coverImage: adedonhaCover,
     config: {
       category_label: 'Palavras',
       requires_timer: true,
