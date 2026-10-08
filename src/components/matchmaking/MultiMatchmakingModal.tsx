@@ -47,17 +47,27 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
   const [selectedGameIds, setSelectedGameIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const normalizeId = (id: string) => id.replace(/-/g, '_');
+
   // Inicializa a seleção com base em buscas ativas existentes ou no jogo clicado
   useEffect(() => {
     if (isOpen) {
-      const activeIds = Object.keys(queues).filter(
-        (id) => queues[id]?.status === 'waiting' || queues[id]?.status === 'joining'
-      );
+      const activeIds = availableGames
+        .filter((g) => {
+          const norm = normalizeId(g.id);
+          const hyphen = norm.replace(/_/g, '-');
+          const q = queues[norm] || queues[hyphen] || queues[g.id];
+          return q?.status === 'waiting' || q?.status === 'joining';
+        })
+        .map((g) => g.id);
 
       if (activeIds.length > 0) {
         setSelectedGameIds(activeIds);
       } else if (preSelectedGameId) {
-        setSelectedGameIds([preSelectedGameId]);
+        const matchingGame = availableGames.find(
+          (g) => normalizeId(g.id) === normalizeId(preSelectedGameId)
+        );
+        setSelectedGameIds([matchingGame ? matchingGame.id : preSelectedGameId]);
       } else {
         // Se nenhuma busca ativa e nenhum pré-selecionado, seleciona todos os jogos disponíveis
         setSelectedGameIds(availableGames.map((g) => g.id));
@@ -72,9 +82,16 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
   );
   const isSearching = activeQueuesList.length > 0;
 
+  // Erros ativos reportados nas filas
+  const errorQueues = Object.values(queues).filter((q) => q.status === 'error' && q.error);
+  const latestErrorMessage = errorQueues[0]?.error;
+
   const toggleGame = (gameId: string) => {
+    const norm = normalizeId(gameId);
     setSelectedGameIds((prev) =>
-      prev.includes(gameId) ? prev.filter((id) => id !== gameId) : [...prev, gameId]
+      prev.some((id) => normalizeId(id) === norm)
+        ? prev.filter((id) => normalizeId(id) !== norm)
+        : [...prev, gameId]
     );
   };
 
@@ -136,6 +153,17 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
 
         {/* Conteúdo Principal com Scroll Interno */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-5 grow">
+          {/* Banner de Erro caso alguma busca tenha falhado */}
+          {latestErrorMessage && !isSearching && (
+            <div className="p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-xs text-red-300 flex items-start gap-2.5 animate-fade-in">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <span className="font-semibold block">Aviso ao iniciar busca:</span>
+                <span className="text-red-300/90">{latestErrorMessage}</span>
+              </div>
+            </div>
+          )}
+
           {/* Barra de Ações Rápidas de Seleção */}
           {!isSearching && (
             <div className="flex items-center justify-between gap-2 pb-1 text-xs">
@@ -164,9 +192,12 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
           {/* Lista Dinâmica de Jogos */}
           <div className="space-y-2.5">
             {availableGames.map((game) => {
-              const isSelected = selectedGameIds.includes(game.id);
-              const queueState = queues[game.id];
+              const normId = normalizeId(game.id);
+              const hyphenId = normId.replace(/_/g, '-');
+              const isSelected = selectedGameIds.some((id) => normalizeId(id) === normId);
+              const queueState = queues[normId] || queues[hyphenId] || queues[game.id];
               const isGameSearching = queueState?.status === 'waiting' || queueState?.status === 'joining';
+              const hasGameError = queueState?.status === 'error';
 
               return (
                 <div
@@ -179,6 +210,8 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
                   className={`flex items-center gap-3.5 p-3 rounded-xl border transition-all select-none ${
                     isGameSearching
                       ? 'bg-blue-950/40 border-blue-500/50 shadow-md shadow-blue-950/30'
+                      : hasGameError
+                      ? 'bg-red-950/30 border-red-800/60 shadow-sm cursor-pointer'
                       : isSelected
                       ? 'bg-slate-800/90 border-blue-500/40 shadow-sm cursor-pointer'
                       : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700 cursor-pointer opacity-70 hover:opacity-100'
@@ -231,6 +264,14 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
                         <span>Procurando oponente...</span>
                       </div>
                     )}
+
+                    {/* Status de erro no card */}
+                    {hasGameError && queueState?.error && (
+                      <div className="mt-1 flex items-center gap-1.5 text-xs text-red-400 font-medium">
+                        <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />
+                        <span className="truncate">{queueState.error}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Ação de Cancelamento Individual durante a busca */}
@@ -239,7 +280,7 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onCancelGameSearch(game.id);
+                        onCancelGameSearch(normId);
                       }}
                       className="px-2.5 py-1.5 rounded-lg bg-red-950/60 hover:bg-red-900/60 border border-red-800/70 text-red-300 text-xs font-bold transition-colors shrink-0 active:scale-95"
                     >

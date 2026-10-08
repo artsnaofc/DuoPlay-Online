@@ -34,6 +34,8 @@ export interface MultiMatchmakingState {
   syncActiveQueues: () => Promise<void>;
 }
 
+export const normalizeGameId = (id: string): string => id.replace(/-/g, '_');
+
 export function useMultiMatchmaking(
   onMatchFound?: (matchId: string, gameId?: string) => void
 ): MultiMatchmakingState {
@@ -78,22 +80,35 @@ export function useMultiMatchmaking(
           }
         }
 
-        // Mapeia o estado retornado para as filas locais
+        // Mapeia o estado retornado para as filas locais com mapeamento duplo (hífen e underscore)
         setQueues((prev) => {
           const updated: Record<string, GameQueueState> = {};
+
+          // Preserva filas em estado 'joining' em voo que ainda não retornaram
+          for (const [k, v] of Object.entries(prev)) {
+            if (v.status === 'joining') {
+              updated[k] = v;
+              updated[normalizeGameId(k)] = v;
+            }
+          }
 
           // Mantém ou atualiza filas que estão no backend
           for (const item of activeList) {
             if (!item.game_id) continue;
-            const existing = prev[item.game_id];
-            updated[item.game_id] = {
-              gameId: item.game_id,
+            const normId = normalizeGameId(item.game_id);
+            const hyphenId = normId.replace(/_/g, '-');
+            const existing = prev[normId] || prev[hyphenId] || prev[item.game_id];
+            const state: GameQueueState = {
+              gameId: normId,
               status: item.status === 'matched' ? 'matched' : 'waiting',
               queueId: item.queue_id,
               matchId: item.match_id,
               enteredAt: existing?.enteredAt || (item.created_at ? new Date(item.created_at).getTime() : Date.now()),
               error: null,
             };
+            updated[normId] = state;
+            updated[hyphenId] = state;
+            updated[item.game_id] = state;
           }
 
           return updated;
@@ -115,10 +130,14 @@ export function useMultiMatchmaking(
     }
   }, [isAuthenticated, user, syncActiveQueues]);
 
-  // Polling periódico somente enquanto houver alguma fila em espera
-  const isSearchingAny = Object.values(queues).some(
-    (q) => q.status === 'waiting' || q.status === 'joining'
+  // Contagem de filas ativas únicas (desduplicando aliases de id)
+  const uniqueActiveGameIds = new Set(
+    Object.values(queues)
+      .filter((q) => q.status === 'waiting' || q.status === 'joining')
+      .map((q) => normalizeGameId(q.gameId))
   );
+  const activeCount = uniqueActiveGameIds.size;
+  const isSearchingAny = activeCount > 0;
 
   useEffect(() => {
     if (!isSearchingAny || !isAuthenticated) return;
@@ -154,14 +173,16 @@ export function useMultiMatchmaking(
       setQueues((prev) => {
         const next = { ...prev };
         for (const gId of gameIds) {
-          if (!next[gId] || next[gId].status !== 'waiting') {
-            next[gId] = {
-              gameId: gId,
-              status: 'joining',
-              enteredAt: Date.now(),
-              error: null,
-            };
-          }
+          const normId = normalizeGameId(gId);
+          const hyphenId = normId.replace(/_/g, '-');
+          const entry: GameQueueState = {
+            gameId: normId,
+            status: 'joining',
+            enteredAt: Date.now(),
+            error: null,
+          };
+          next[normId] = entry;
+          next[hyphenId] = entry;
         }
         return next;
       });
@@ -169,8 +190,10 @@ export function useMultiMatchmaking(
       // Dispara a entrada no backend para cada jogo
       await Promise.all(
         gameIds.map(async (gId) => {
+          const normId = normalizeGameId(gId);
+          const hyphenId = normId.replace(/_/g, '-');
           try {
-            const res = await joinMatchmakingQueue(gId);
+            const res = await joinMatchmakingQueue(normId);
             if (!isMountedRef.current) return;
 
             if (res.success && res.data) {
@@ -180,41 +203,53 @@ export function useMultiMatchmaking(
                 if (navigatedMatchIdRef.current !== data.match_id) {
                   navigatedMatchIdRef.current = data.match_id;
                   setQueues({});
-                  onMatchFoundRef.current?.(data.match_id, data.game_id || gId);
+                  onMatchFoundRef.current?.(data.match_id, data.game_id || normId);
                 }
               } else {
-                setQueues((prev) => ({
-                  ...prev,
-                  [gId]: {
-                    gameId: gId,
+                setQueues((prev) => {
+                  const state: GameQueueState = {
+                    gameId: normId,
                     status: 'waiting',
                     queueId: data.queue_id,
                     matchId: null,
-                    enteredAt: prev[gId]?.enteredAt || Date.now(),
+                    enteredAt: prev[normId]?.enteredAt || Date.now(),
                     error: null,
-                  },
-                }));
+                  };
+                  return {
+                    ...prev,
+                    [normId]: state,
+                    [hyphenId]: state,
+                  };
+                });
               }
             } else {
-              setQueues((prev) => ({
-                ...prev,
-                [gId]: {
-                  gameId: gId,
+              setQueues((prev) => {
+                const state: GameQueueState = {
+                  gameId: normId,
                   status: 'error',
                   error: res.error || 'Falha ao entrar na fila.',
-                },
-              }));
+                };
+                return {
+                  ...prev,
+                  [normId]: state,
+                  [hyphenId]: state,
+                };
+              });
             }
           } catch (err) {
             if (!isMountedRef.current) return;
-            setQueues((prev) => ({
-              ...prev,
-              [gId]: {
-                gameId: gId,
+            setQueues((prev) => {
+              const state: GameQueueState = {
+                gameId: normId,
                 status: 'error',
                 error: err instanceof Error ? err.message : 'Erro ao conectar à fila.',
-              },
-            }));
+              };
+              return {
+                ...prev,
+                [normId]: state,
+                [hyphenId]: state,
+              };
+            });
           }
         })
       );
@@ -224,21 +259,26 @@ export function useMultiMatchmaking(
 
   // Cancelar a busca de um jogo individual
   const cancelGameSearch = useCallback(async (gameId: string) => {
+    const normId = normalizeGameId(gameId);
+    const hyphenId = normId.replace(/_/g, '-');
+
     // Atualiza imediatamente a UI
     setQueues((prev) => {
       const next = { ...prev };
+      delete next[normId];
+      delete next[hyphenId];
       delete next[gameId];
       return next;
     });
 
     try {
-      const res = await cancelMatchmakingQueue(gameId);
+      const res = await cancelMatchmakingQueue(normId);
       if (res.success && res.data?.status === 'matched' && res.data.match_id) {
         // Se foi pareado concorrentemente no momento do cancelamento
         if (navigatedMatchIdRef.current !== res.data.match_id) {
           navigatedMatchIdRef.current = res.data.match_id;
           setQueues({});
-          onMatchFoundRef.current?.(res.data.match_id, gameId);
+          onMatchFoundRef.current?.(res.data.match_id, normId);
         }
       }
     } catch {
@@ -261,10 +301,6 @@ export function useMultiMatchmaking(
       // Falha silenciosa
     }
   }, []);
-
-  const activeCount = Object.values(queues).filter(
-    (q) => q.status === 'waiting' || q.status === 'joining'
-  ).length;
 
   return {
     queues,
