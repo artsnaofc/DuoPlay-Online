@@ -55,11 +55,11 @@ describe('Correção das Fases 19/20: Salas, Matchmaking e Carta Duo Agnósticos
     });
 
     it('1.2. Jogos inativos permanecem indisponíveis para matchmaking e salas', async () => {
-      // Simula resposta da RPC para jogo inativo (ex: pong ou snake)
+      // Simula resposta da RPC para jogo inativo (ex: pong ou billiards)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any).rpc = async (fn: string, args: any) => {
         if (fn === 'join_matchmaking_queue') {
-          if (args.p_game_id === 'pong' || args.p_game_id === 'snake') {
+          if (args.p_game_id === 'pong' || args.p_game_id === 'billiards') {
             return {
               data: null,
               error: {
@@ -76,9 +76,9 @@ describe('Correção das Fases 19/20: Salas, Matchmaking e Carta Duo Agnósticos
       assert.strictEqual(resPong.success, false);
       assert.match(resPong.error || '', /GAME_NOT_ACTIVE/);
 
-      const resSnake = await joinMatchmakingQueue('snake');
-      assert.strictEqual(resSnake.success, false);
-      assert.match(resSnake.error || '', /GAME_NOT_ACTIVE/);
+      const resBilliards = await joinMatchmakingQueue('billiards');
+      assert.strictEqual(resBilliards.success, false);
+      assert.match(resBilliards.error || '', /GAME_NOT_ACTIVE/);
     });
 
     it('1.3. Jogo inexistente é rejeitado com GAME_NOT_FOUND / GAME_NOT_ACTIVE', async () => {

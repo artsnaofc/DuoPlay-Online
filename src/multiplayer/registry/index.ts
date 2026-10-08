@@ -8,12 +8,14 @@
 import React from 'react';
 import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
 import { CartaDuoGame } from '@/games/carta-duo/CartaDuoGame';
+import { SnakeGame } from '@/games/snake/SnakeGame';
 
 // Caminhos estáticos para as artes oficiais para evitar falhas de importação de extensão (.jpg) no TSX/Node Test Runner
 const ticTacToeCover = '/src/assets/images/game_cover_tic_tac_toe_1791338712522.jpg';
 const ticTacToeArtwork = '/src/assets/images/tic_tac_toe_artwork_1791338972542.jpg';
 const pongCover = '/src/assets/images/game_cover_pong_arcade_1791338723540.jpg';
 const snakeCover = '/src/assets/images/game_cover_snake_arena_1791338733139.jpg';
+const cartaDuoCover = '/src/assets/images/game_cover_carta_duo_1791471015960.jpg';
 
 export type GameType = 'real_time' | 'turn_based' | 'words' | 'physics';
 
@@ -89,25 +91,30 @@ const REGISTRY: Record<string, GameDefinition> = {
   'snake': {
     id: 'snake',
     title: 'Cobrinha Competitiva',
-    tagline: 'Arena multiplayer de sobrevivência',
+    tagline: 'Arena multiplayer de sobrevivência 1v1',
     description:
-      'Controle sua cobrinha na arena compartilhada, colete itens e desvie dos adversários em uma disputa dinâmica de sobrevivência.',
+      'Controle sua cobrinha na arena compartilhada em tempo real, colete comida e sobreviva aos movimentos do adversário.',
     minPlayers: 2,
-    maxPlayers: 4,
+    maxPlayers: 2,
     category: 'Arena / Sobrevivência',
     gameType: 'real_time',
     iconName: 'worm',
     highlights: [
-      'Suporte para até 4 jogadores',
-      'Arena dinâmica com itens e obstáculos',
-      'Sobreviva mais tempo para vencer',
+      'Disputa 1v1 em tempo real com ticks determinísticos',
+      'Arena compartilhada com detecção de colisão oficial',
+      'Controles touch D-pad e suporte a teclado WASD/Setas',
+      'Placar oficial e ranking integrado',
     ],
-    isAvailable: false,
+    isAvailable: true,
     coverImage: snakeCover,
+    component: SnakeGame,
     config: {
       category_label: 'Tempo Real',
       requires_timer: false,
-      speed: 100,
+      grid_width: 20,
+      grid_height: 20,
+      tick_rate_ms: 150,
+      countdown_seconds: 3,
     },
   },
   'carta_duo': {
@@ -123,11 +130,12 @@ const REGISTRY: Record<string, GameDefinition> = {
     iconName: 'swords',
     highlights: [
       'Partidas de 2 a 6 jogadores simultâneos',
-      'Regras configuráveis e acúmulo de compras',
+      'Regras oficiais sem acúmulo de compras',
       'Cartas especiais com efeitos táticos',
       'Placar oficial e ranking integrado',
     ],
     isAvailable: true,
+    coverImage: cartaDuoCover,
     component: CartaDuoGame,
     config: {
       category_label: 'Turnos',
