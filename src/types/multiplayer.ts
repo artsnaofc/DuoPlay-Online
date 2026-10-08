@@ -31,6 +31,8 @@ export interface GameDTO {
   description: string;
   min_players: number;
   max_players: number;
+  game_type: string;
+  capabilities: Record<string, unknown>;
   is_active: boolean;
   created_at: string;
 }

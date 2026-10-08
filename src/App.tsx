@@ -11,7 +11,7 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { OfflineIndicator } from '@/components/OfflineIndicator';
 import { HomePage } from '@/pages/HomePage';
-import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
+import { ActiveGameWrapper } from '@/multiplayer/registry/ActiveGameWrapper';
 import { RoomLobbyModal } from '@/components/lobby/RoomLobbyModal';
 import { PublicMatchmakingModal } from '@/components/matchmaking/PublicMatchmakingModal';
 import { ActiveMatchRecoveryModal } from '@/components/match/ActiveMatchRecoveryModal';
@@ -440,7 +440,7 @@ function MainApp() {
       {/* Main Content Area */}
       <main className="grow">
         {activeMatchId ? (
-          <TicTacToeGame
+          <ActiveGameWrapper
             matchId={activeMatchId}
             onLeave={handleLeaveMatch}
             onViewHistory={() => setIsHistoryOpen(true)}

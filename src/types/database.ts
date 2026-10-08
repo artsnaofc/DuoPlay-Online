@@ -83,6 +83,8 @@ export type GameRow = {
   description: string;
   min_players: number;
   max_players: number;
+  game_type: string;
+  capabilities: Json;
   is_active: boolean;
   created_at: string;
 };

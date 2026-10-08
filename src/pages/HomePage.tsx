@@ -21,62 +21,21 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSocial } from '@/hooks/useSocial';
 import { AuthModal } from '@/components/auth/AuthModal';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
-import ticTacToeArtwork from '@/assets/images/tic_tac_toe_artwork_1791338972542.jpg';
+import { listGames } from '@/multiplayer/registry';
 
-const GAMES: GameItem[] = [
-  {
-    id: 'tic-tac-toe',
-    title: 'Jogo da Velha',
-    tagline: 'Clássico duelo de raciocínio rápido',
-    description:
-      'A tradicional disputa de estratégia por turnos para 2 jogadores. Partidas rápidas autoritativas no PostgreSQL com suporte a matchmaking público e revanche.',
-    minPlayers: 2,
-    maxPlayers: 2,
-    category: 'Estratégia por Turnos',
-    iconName: 'grid',
-    highlights: [
-      'Matchmaking automático autoritativo',
-      'Salas privadas com código de 6 caracteres',
-      'Turnos ágeis e placar oficial',
-      'Revanche com aceite bilateral',
-    ],
-    isAvailable: true,
-  },
-  {
-    id: 'pong',
-    title: 'Pong',
-    tagline: 'Duelo arcade de reflexos e agilidade',
-    description:
-      'O clássico confronto de raquetes em tempo real. Teste seus reflexos em trocas rápidas de bola em ritmo acelerado.',
-    minPlayers: 2,
-    maxPlayers: 2,
-    category: 'Arcade / Reflexos',
-    iconName: 'activity',
-    highlights: [
-      'Ação em tempo real com física fluida',
-      'Disputa direta ponto a ponto',
-      'Controles adaptados para toque e teclado',
-    ],
-    isAvailable: false,
-  },
-  {
-    id: 'snake',
-    title: 'Cobrinha Competitiva',
-    tagline: 'Arena multiplayer de sobrevivência',
-    description:
-      'Controle sua cobrinha na arena compartilhada, colete itens e desvie dos adversários em uma disputa dinâmica de sobrevivência.',
-    minPlayers: 2,
-    maxPlayers: 4,
-    category: 'Arena / Sobrevivência',
-    iconName: 'worm',
-    highlights: [
-      'Suporte para até 4 jogadores',
-      'Arena dinâmica com itens e obstáculos',
-      'Sobreviva mais tempo para vencer',
-    ],
-    isAvailable: false,
-  },
-];
+const GAMES: GameItem[] = listGames().map((g) => ({
+  id: g.id,
+  title: g.title,
+  tagline: g.tagline,
+  description: g.description,
+  minPlayers: g.minPlayers,
+  maxPlayers: g.maxPlayers,
+  category: g.category,
+  iconName: g.iconName as any,
+  highlights: g.highlights,
+  isAvailable: g.isAvailable,
+  coverImage: g.coverImage,
+}));
 
 export interface HomePageProps {
   onOpenMatchmaking?: () => void;
@@ -293,7 +252,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             <GameCard
               key={game.id}
               game={game}
-              imageSrc={game.id === 'tic-tac-toe' ? ticTacToeArtwork : undefined}
+              imageSrc={game.coverImage}
               onMatchmaking={handleMatchmakingAction}
               onCreateRoom={handleCreateRoomAction}
             />
