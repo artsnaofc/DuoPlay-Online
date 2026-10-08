@@ -92,8 +92,10 @@ export async function joinMatchmakingQueue(
 
 /**
  * Cancela a busca na fila pública de matchmaking do usuário atual.
+ * Se gameId for especificado, cancela apenas a fila daquele jogo.
+ * Se omitido, cancela todas as buscas ativas do usuário.
  */
-export async function cancelMatchmakingQueue(): Promise<MatchmakingResult> {
+export async function cancelMatchmakingQueue(gameId?: string): Promise<MatchmakingResult> {
   if (!isSupabaseConfigured) {
     return {
       success: false,
@@ -104,8 +106,9 @@ export async function cancelMatchmakingQueue(): Promise<MatchmakingResult> {
   }
 
   try {
+    const params = gameId ? { p_game_id: gameId } : {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)('cancel_matchmaking_queue');
+    const { data, error } = await (supabase.rpc as any)('cancel_matchmaking_queue', params);
 
     if (error) {
       return {
@@ -146,6 +149,65 @@ export async function cancelMatchmakingQueue(): Promise<MatchmakingResult> {
     return {
       success: false,
       data: null,
+      error: errorMsg,
+      code: 'UNEXPECTED_ERROR',
+    };
+  }
+}
+
+/**
+ * Consulta todas as filas de matchmaking ativas ('waiting' ou 'matched') do usuário autenticado.
+ */
+export async function getMyActiveMatchmakingQueues(): Promise<MatchmakingResult<MatchmakingQueueInfo[]>> {
+  if (!isSupabaseConfigured) {
+    return {
+      success: false,
+      data: [],
+      error: 'Supabase não está configurado.',
+      code: 'SUPABASE_NOT_CONFIGURED',
+    };
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('get_my_active_matchmaking_queues');
+
+    if (error) {
+      return {
+        success: false,
+        data: [],
+        error: error.message || 'Erro ao consultar filas ativas.',
+        code: error.code,
+      };
+    }
+
+    const payload = data as {
+      success?: boolean;
+      data?: MatchmakingQueueInfo[];
+      code?: string;
+      error?: { message?: string; code?: string } | string | null;
+    } | null;
+
+    if (!payload || payload.success !== true) {
+      const errorMsg =
+        typeof payload?.error === 'string'
+          ? payload.error
+          : payload?.error?.message || 'Falha ao consultar filas ativas de matchmaking.';
+      return {
+        success: false,
+        data: [],
+        error: errorMsg,
+        code: payload?.code,
+      };
+    }
+
+    return { success: true, data: payload.data || [] };
+  } catch (err: unknown) {
+    const errorMsg =
+      err instanceof Error ? err.message : 'Erro inesperado ao consultar filas ativas.';
+    return {
+      success: false,
+      data: [],
       error: errorMsg,
       code: 'UNEXPECTED_ERROR',
     };

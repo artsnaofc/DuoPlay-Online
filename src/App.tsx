@@ -13,7 +13,10 @@ import { OfflineIndicator } from '@/components/OfflineIndicator';
 import { HomePage } from '@/pages/HomePage';
 import { ActiveGameWrapper } from '@/multiplayer/registry/ActiveGameWrapper';
 import { RoomLobbyModal } from '@/components/lobby/RoomLobbyModal';
+import { SelectGameForRoomModal } from '@/components/lobby/SelectGameForRoomModal';
 import { PublicMatchmakingModal } from '@/components/matchmaking/PublicMatchmakingModal';
+import { MultiMatchmakingModal } from '@/components/matchmaking/MultiMatchmakingModal';
+import { useMultiMatchmaking } from '@/hooks/useMultiMatchmaking';
 import { ActiveMatchRecoveryModal } from '@/components/match/ActiveMatchRecoveryModal';
 import { AbandonMatchModal } from '@/components/match/AbandonMatchModal';
 import { MatchResultModal } from '@/components/match/MatchResultModal';
@@ -49,15 +52,21 @@ function MainApp() {
 
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [isLobbyOpen, setIsLobbyOpen] = useState(false);
+  const [isSelectGameRoomOpen, setIsSelectGameRoomOpen] = useState(false);
   const [isMatchmakingOpen, setIsMatchmakingOpen] = useState(false);
   const [selectedLobbyGameId, setSelectedLobbyGameId] = useState<string>('tic_tac_toe');
-  const [selectedMMGameId, setSelectedMMGameId] = useState<string>('tic_tac_toe');
+  const [selectedMMGameId, setSelectedMMGameId] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
+
+  // Hook central de Matchmaking Multijogo Simultâneo
+  const multiMatchmaking = useMultiMatchmaking((matchId) => {
+    handleStartMatch(matchId);
+  });
 
   // Heartbeat de Presença Global (Fase 14.2 — Lease de Presença)
   usePresenceHeartbeat();
@@ -460,18 +469,23 @@ function MainApp() {
         ) : (
           <HomePage
             onOpenMatchmaking={(gameId) => {
-              setSelectedMMGameId(gameId || 'tic_tac_toe');
+              setSelectedMMGameId(gameId || null);
               setIsMatchmakingOpen(true);
             }}
             onOpenLobby={(gameId) => {
-              setSelectedLobbyGameId(gameId || 'tic_tac_toe');
-              setIsLobbyOpen(true);
+              if (gameId) {
+                setSelectedLobbyGameId(gameId);
+                setIsLobbyOpen(true);
+              } else {
+                setIsSelectGameRoomOpen(true);
+              }
             }}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenProfile={() => setIsProfileOpen(true)}
             onOpenFriends={() => setIsFriendsOpen(true)}
             hasActiveMatch={Boolean(recoveryMatchInfo)}
             onResumeActiveMatch={() => setIsRecoveryModalOpen(true)}
+            activeMatchmakingCount={multiMatchmaking.activeCount}
           />
         )}
       </main>
@@ -482,12 +496,26 @@ function MainApp() {
       {/* PWA Offline Connectivity Indicator */}
       <OfflineIndicator />
 
-      {/* Modal de Matchmaking Público Autoritatívo */}
-      <PublicMatchmakingModal
+      {/* Modal de Matchmaking Multijogo Simultâneo Autoritatívo */}
+      <MultiMatchmakingModal
         isOpen={isMatchmakingOpen && !activeMatchId}
         onClose={() => setIsMatchmakingOpen(false)}
-        onMatchFound={handleStartMatch}
-        gameId={selectedMMGameId}
+        queues={multiMatchmaking.queues}
+        onStartSearch={(gameIds) => multiMatchmaking.startSearch(gameIds)}
+        onCancelGameSearch={(gId) => multiMatchmaking.cancelGameSearch(gId)}
+        onCancelAllSearches={() => multiMatchmaking.cancelAllSearches()}
+        preSelectedGameId={selectedMMGameId}
+      />
+
+      {/* Modal de Seleção de Jogo para Sala Privada */}
+      <SelectGameForRoomModal
+        isOpen={isSelectGameRoomOpen}
+        onClose={() => setIsSelectGameRoomOpen(false)}
+        onSelectGame={(gameId) => {
+          setSelectedLobbyGameId(gameId);
+          setIsSelectGameRoomOpen(false);
+          setIsLobbyOpen(true);
+        }}
       />
 
       {/* Modal de Salas & Lobby para Partidas Privadas */}

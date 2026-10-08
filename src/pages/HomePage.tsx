@@ -45,6 +45,7 @@ export interface HomePageProps {
   onOpenFriends?: () => void;
   hasActiveMatch?: boolean;
   onResumeActiveMatch?: () => void;
+  activeMatchmakingCount?: number;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -55,6 +56,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   onOpenFriends,
   hasActiveMatch,
   onResumeActiveMatch,
+  activeMatchmakingCount = 0,
 }) => {
   const { user, profile, isAuthenticated } = useAuth();
   const { pendingCount } = useSocial();
@@ -159,6 +161,35 @@ export const HomePage: React.FC<HomePageProps> = ({
               )}
             </div>
           </div>
+
+          {/* Background Active Matchmaking Indicator */}
+          {activeMatchmakingCount > 0 && (
+            <div
+              onClick={() => handleMatchmakingAction()}
+              className="p-4 rounded-2xl bg-gradient-to-r from-blue-950/80 via-indigo-950/70 to-blue-900/50 border border-blue-500/60 shadow-xl flex items-center justify-between gap-4 cursor-pointer hover:border-blue-400 transition-all group animate-fade-in"
+            >
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
+                    Procurando partidas ({activeMatchmakingCount})
+                  </h4>
+                  <p className="text-xs text-blue-200/80">
+                    Busca em andamento em segundo plano. Clique para gerenciar ou acompanhar.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-950/50 shrink-0"
+              >
+                Acompanhar
+              </button>
+            </div>
+          )}
 
           {/* Active Match Recovery Banner */}
           {hasActiveMatch && onResumeActiveMatch && (
