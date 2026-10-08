@@ -14,7 +14,7 @@ interface ActiveGameWrapperProps {
   matchId: string;
   onLeave: () => void;
   onViewHistory?: () => void;
-  onPlayAgain?: () => void;
+  onPlayAgain?: (gameId?: string) => void;
   onStartRematch?: (newMatchId: string) => void;
   onViewPlayerProfile?: (userId: string) => void;
 }
@@ -125,7 +125,7 @@ export const ActiveGameWrapper: React.FC<ActiveGameWrapperProps> = ({
       matchId={matchId}
       onLeave={onLeave}
       onViewHistory={onViewHistory}
-      onPlayAgain={onPlayAgain}
+      onPlayAgain={() => onPlayAgain?.(snapshot.gameId)}
       onStartRematch={onStartRematch}
       onViewPlayerProfile={onViewPlayerProfile}
     />

@@ -234,9 +234,10 @@ const REGISTRY: Record<string, GameDefinition> = {
  */
 export function getGameDefinition(gameId: string): GameDefinition | null {
   if (!gameId) return null;
-  // Suporte a normalizações de id (ex: 'tic-tac-toe' vs 'tic_tac_toe')
-  const normalizedId = gameId.replace(/_/g, '-');
-  return REGISTRY[normalizedId] || REGISTRY[gameId] || null;
+  // Suporte robusto a normalizações de id (ex: 'tic-tac-toe' vs 'tic_tac_toe', 'carta-duo' vs 'carta_duo')
+  const hyphenId = gameId.replace(/_/g, '-');
+  const underscoreId = gameId.replace(/-/g, '_');
+  return REGISTRY[gameId] || REGISTRY[hyphenId] || REGISTRY[underscoreId] || null;
 }
 
 /**

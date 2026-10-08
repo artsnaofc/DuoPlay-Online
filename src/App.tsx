@@ -364,7 +364,10 @@ function MainApp() {
     <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-blue-600 selection:text-white">
       {/* Platform Header */}
       <Header
-        onOpenMatchmaking={() => setIsMatchmakingOpen(true)}
+        onOpenMatchmaking={() => {
+          setSelectedMMGameId('tic_tac_toe');
+          setIsMatchmakingOpen(true);
+        }}
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
         onOpenFriends={() => setIsFriendsOpen(true)}
@@ -448,19 +451,20 @@ function MainApp() {
             onViewHistory={() => setIsHistoryOpen(true)}
             onStartRematch={handleStartMatch}
             onViewPlayerProfile={(userId) => setViewingPublicUserId(userId)}
-            onPlayAgain={() => {
+            onPlayAgain={(gameId) => {
               handleLeaveMatch();
+              if (gameId) setSelectedMMGameId(gameId);
               setIsMatchmakingOpen(true);
             }}
           />
         ) : (
           <HomePage
             onOpenMatchmaking={(gameId) => {
-              if (gameId) setSelectedMMGameId(gameId);
+              setSelectedMMGameId(gameId || 'tic_tac_toe');
               setIsMatchmakingOpen(true);
             }}
             onOpenLobby={(gameId) => {
-              if (gameId) setSelectedLobbyGameId(gameId);
+              setSelectedLobbyGameId(gameId || 'tic_tac_toe');
               setIsLobbyOpen(true);
             }}
             onOpenHistory={() => setIsHistoryOpen(true)}
@@ -515,7 +519,10 @@ function MainApp() {
       <MatchHistoryModal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
-        onPlayGame={() => setIsMatchmakingOpen(true)}
+        onPlayGame={() => {
+          setSelectedMMGameId('tic_tac_toe');
+          setIsMatchmakingOpen(true);
+        }}
         onViewUserProfile={(userId) => setViewingPublicUserId(userId)}
       />
 

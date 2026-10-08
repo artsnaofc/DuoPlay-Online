@@ -146,10 +146,16 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
         setJoinCode(cleanCode);
         handleAutoJoin(cleanCode);
       }
-    } else if (mode === 'waiting' && !currentRoom) {
-      setMode('options');
+    } else {
+      if (currentRoom && currentRoom.game_id !== defaultGameId) {
+        setCurrentRoom(null);
+        setPendingRoomId(null);
+        setMode('options');
+      } else if (mode === 'waiting' && !currentRoom) {
+        setMode('options');
+      }
     }
-  }, [isOpen, initialCode, handleAutoJoin, mode, currentRoom]);
+  }, [isOpen, initialCode, defaultGameId, handleAutoJoin, mode, currentRoom]);
 
   // Polling para sincronização periódica da sala enquanto estiver em espera
   const refreshRoom = useCallback(async (roomId: string) => {

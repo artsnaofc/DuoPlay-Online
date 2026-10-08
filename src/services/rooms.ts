@@ -71,6 +71,12 @@ export function translateRoomError(error: unknown): { message: string; code: str
   if (rawMsg.includes('P0013') || rawMsg.includes('PLAYERS_NOT_READY')) {
     return { message: 'Todos os jogadores precisam confirmar "Pronto" antes de iniciar.', code: 'PLAYERS_NOT_READY' };
   }
+  if (rawMsg.includes('PLAYER_IN_ACTIVE_MATCH')) {
+    return { message: 'Você já possui uma partida em andamento no servidor.', code: 'PLAYER_IN_ACTIVE_MATCH' };
+  }
+  if (rawMsg.includes('GAME_NOT_FOUND') || rawMsg.includes('P0003')) {
+    return { message: 'O jogo especificado não foi encontrado ou está inativo.', code: 'GAME_NOT_FOUND' };
+  }
   if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError') || rawMsg.includes('fetch')) {
     return { message: 'Erro de conexão com o servidor. Verifique sua conexão.', code: 'NETWORK_ERROR' };
   }
@@ -86,7 +92,7 @@ export function translateRoomError(error: unknown): { message: string; code: str
  */
 export async function createRoom(
   gameId: string = 'tic_tac_toe',
-  name: string = 'Sala de Jogo da Velha'
+  name?: string
 ): Promise<RoomOperationResult<{ room: RoomDTO; member: RoomMemberDTO }>> {
   if (!isSupabaseConfigured) {
     return { success: false, error: 'Supabase não está configurado.', code: 'NOT_CONFIGURED' };
@@ -95,11 +101,12 @@ export async function createRoom(
   try {
     const gameDef = getGameDefinition(gameId);
     const maxMembers = gameDef?.maxPlayers || 2;
+    const roomName = name || (gameDef?.title ? `Sala de ${gameDef.title}` : 'Sala de Jogo');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase.rpc as any)('create_room', {
       p_game_id: gameId,
-      p_name: name,
+      p_name: roomName,
       p_is_private: true,
       p_max_members: maxMembers,
     });

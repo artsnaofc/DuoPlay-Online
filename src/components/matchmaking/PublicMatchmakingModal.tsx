@@ -92,7 +92,7 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
         setIsActionLoading(false);
       }
     }
-  }, [onMatchFound, onClose]);
+  }, [gameId, onMatchFound, onClose]);
 
   // Consulta o status atual da fila do próprio usuário no PostgreSQL
   const checkQueueStatus = useCallback(async () => {
@@ -108,6 +108,12 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
       if (res.success && res.data) {
         if (res.data.status === 'completed' || res.data.status === 'cancelled') {
           setQueueInfo(null);
+        } else if (res.data.game_id && res.data.game_id !== gameId && res.data.status === 'waiting') {
+          // Usuário solicitou outro jogo: migra imediatamente para o novo gameId
+          if (!hasAttemptedAutoJoinRef.current) {
+            hasAttemptedAutoJoinRef.current = true;
+            await handleJoinQueue();
+          }
         } else {
           setQueueInfo(res.data);
           setErrorMsg(null);
@@ -136,7 +142,7 @@ export const PublicMatchmakingModal: React.FC<PublicMatchmakingModalProps> = ({
     } finally {
       isPollingBusyRef.current = false;
     }
-  }, [isOpen, onMatchFound, onClose, handleJoinQueue]);
+  }, [isOpen, gameId, onMatchFound, onClose, handleJoinQueue]);
 
   // Lifecycle do Polling e evento de Visibilidade da Aba (visibilitychange)
   useEffect(() => {
