@@ -1,10 +1,11 @@
 // ============================================================================
 // Component: ReceivedGameInviteModal — DuoPlay-Online
-// Phase: Fase 14.2 — Convites de Partida entre Amigos + Convite pela Sala de Espera
-// Description: Modal de notificação e resposta a convite de partida recebido em tempo real.
+// Phase: Fase 14.2 & Auditoria Crítica — Convites de Partida em Tempo Real
+// Description: Modal de resposta a convite com prazo autoritativo de 15 segundos,
+//              indicador visual de contagem regressiva e áudio suave com Web Audio API.
 // ============================================================================
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Gamepad2,
   Check,
@@ -24,6 +25,86 @@ interface ReceivedGameInviteModalProps {
   onClose?: () => void;
 }
 
+// Reprodutor de áudio suave para sinalizar convite pendente dentro do prazo de 15s
+class InviteChimePlayer {
+  private audioCtx: AudioContext | null = null;
+  private intervalId: number | null = null;
+  private isDestroyed = false;
+
+  private getContext(): AudioContext | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return null;
+      if (!this.audioCtx || this.audioCtx.state === 'closed') {
+        this.audioCtx = new AudioCtx();
+      }
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
+      return this.audioCtx;
+    } catch {
+      return null;
+    }
+  }
+
+  private playChime() {
+    if (this.isDestroyed) return;
+    const ctx = this.getContext();
+    if (!ctx || ctx.state !== 'running') return;
+
+    try {
+      const now = ctx.currentTime;
+      // Duas notas suaves tipo campainha digital (D5 587Hz -> A5 880Hz) com volume discreto
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, now);
+      gain1.gain.setValueAtTime(0.04, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.3);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(880, now + 0.12);
+      gain2.gain.setValueAtTime(0.045, now + 0.12);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.12);
+      osc2.stop(now + 0.45);
+    } catch {
+      // Ignora exceções de áudio
+    }
+  }
+
+  public start() {
+    this.isDestroyed = false;
+    this.playChime();
+    this.intervalId = window.setInterval(() => {
+      this.playChime();
+    }, 3200);
+  }
+
+  public stop() {
+    this.isDestroyed = true;
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+    if (this.audioCtx && this.audioCtx.state !== 'closed') {
+      try {
+        this.audioCtx.close().catch(() => {});
+      } catch {}
+      this.audioCtx = null;
+    }
+  }
+}
+
 export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = ({
   invite,
   onAccept,
@@ -32,12 +113,34 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
   const [isAccepting, setIsAccepting] = useState(false);
   const [isDeclining, setIsDeclining] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(120);
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(15);
+
+  const chimeRef = useRef<InviteChimePlayer | null>(null);
 
   const expiresAtMs = useMemo(() => {
     if (!invite?.expires_at) return 0;
     return new Date(invite.expires_at).getTime();
   }, [invite?.expires_at]);
+
+  // Ciclo de vida do áudio discreto: para imediatamente se aceitar, recusar ou desmontar
+  useEffect(() => {
+    if (!invite) {
+      chimeRef.current?.stop();
+      chimeRef.current = null;
+      return;
+    }
+
+    const player = new InviteChimePlayer();
+    chimeRef.current = player;
+    player.start();
+
+    return () => {
+      player.stop();
+      if (chimeRef.current === player) {
+        chimeRef.current = null;
+      }
+    };
+  }, [invite?.invite_id]);
 
   useEffect(() => {
     if (!invite) return;
@@ -49,7 +152,11 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
     const updateTimer = () => {
       const now = Date.now();
       const diff = Math.max(0, Math.floor((expiresAtMs - now) / 1000));
-      setSecondsRemaining(diff);
+      // Garante teto de 15 segundos
+      setSecondsRemaining(Math.min(15, diff));
+      if (diff <= 0) {
+        chimeRef.current?.stop();
+      }
     };
 
     updateTimer();
@@ -62,6 +169,7 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
 
   const handleAcceptClick = async () => {
     if (isAccepting || isDeclining) return;
+    chimeRef.current?.stop();
     setIsAccepting(true);
     setErrorMessage(null);
 
@@ -74,6 +182,7 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
 
   const handleDeclineClick = async () => {
     if (isAccepting || isDeclining) return;
+    chimeRef.current?.stop();
     setIsDeclining(true);
     setErrorMessage(null);
 
@@ -84,8 +193,8 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
     }
   };
 
-  // Percentual restante para a barra de progresso
-  const progressPercent = Math.min(100, Math.max(0, (secondsRemaining / 120) * 100));
+  // Percentual restante para a barra de progresso (base de 15 segundos)
+  const progressPercent = Math.min(100, Math.max(0, (secondsRemaining / 15) * 100));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -101,7 +210,7 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
             <Gamepad2 className="w-4 h-4 animate-bounce" />
             <span>Convite para Jogar</span>
           </div>
-          <div className="flex items-center gap-1.5 text-xs font-mono text-blue-300">
+          <div className="flex items-center gap-1.5 text-xs font-mono text-blue-300 font-bold">
             <Clock className="w-3.5 h-3.5" />
             <span>{secondsRemaining}s</span>
           </div>
@@ -153,7 +262,7 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
               type="button"
               disabled={isAccepting || isDeclining}
               onClick={handleDeclineClick}
-              className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold text-xs transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold text-xs transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 focus-visible:outline-2 focus-visible:outline-slate-400"
             >
               {isDeclining ? (
                 <RotateCw className="w-4 h-4 animate-spin" />
@@ -167,7 +276,7 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
               type="button"
               disabled={isAccepting || isDeclining}
               onClick={handleAcceptClick}
-              className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-900/40 transition-all transform active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-900/40 transition-all transform active:scale-95 disabled:opacity-50 flex items-center justify-center gap-1.5 focus-visible:outline-2 focus-visible:outline-blue-400"
             >
               {isAccepting ? (
                 <RotateCw className="w-4 h-4 animate-spin" />
@@ -182,3 +291,4 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
     </div>
   );
 };
+

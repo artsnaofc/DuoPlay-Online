@@ -44,6 +44,7 @@ import { getGameDefinition } from '@/multiplayer/registry/index';
 interface RoomLobbyModalProps {
   isOpen: boolean;
   initialCode?: string | null;
+  initialMode?: 'options' | 'join' | 'waiting' | 'create';
   defaultGameId?: string; // Permite definir qual jogo criar
   onClose: () => void;
   onMatchStarted: (matchId: string) => void;
@@ -52,6 +53,7 @@ interface RoomLobbyModalProps {
 export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   isOpen,
   initialCode,
+  initialMode = 'options',
   defaultGameId = 'tic_tac_toe',
   onClose,
   onMatchStarted,
@@ -59,7 +61,9 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   const { user } = useAuth();
   const currentUserId = user?.id || null;
 
-  const [mode, setMode] = useState<'options' | 'join' | 'waiting'>('options');
+  const [mode, setMode] = useState<'options' | 'join' | 'waiting'>(
+    initialMode === 'create' || initialMode === 'waiting' ? 'waiting' : initialMode
+  );
   const [joinCode, setJoinCode] = useState(initialCode || '');
   const [currentRoom, setCurrentRoom] = useState<RoomWithMembers | null>(null);
   const [pendingRoomId, setPendingRoomId] = useState<string | null>(null);
@@ -70,6 +74,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
   const pollingRef = useRef<number | null>(null);
   const lastLoadedCodeRef = useRef<string | null>(null);
+  const autoCreateTriggeredRef = useRef<boolean>(false);
 
   // Deriva o jogo atual do lobby
   const gameDef = useMemo(() => {
@@ -185,7 +190,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   }, [mode, currentRoom?.id, refreshRoom]);
 
   // 1. Ação: Criar Sala
-  const handleCreateRoom = async () => {
+  const handleCreateRoom = useCallback(async () => {
     if (isLoading) return;
     setIsLoading(true);
     setErrorMessage(null);
@@ -220,8 +225,27 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     } else {
       setIsLoading(false);
       setErrorMessage(result.error || 'Não foi possível criar a sala.');
+      setMode('options');
     }
-  };
+  }, [isLoading, defaultGameId, loadRoom]);
+
+  // Se o modo inicial for 'create' e não houver código inicial, cria e abre imediatamente a sala
+  useEffect(() => {
+    if (!isOpen) {
+      autoCreateTriggeredRef.current = false;
+      return;
+    }
+
+    if (
+      initialMode === 'create' &&
+      !initialCode &&
+      !currentRoom &&
+      !autoCreateTriggeredRef.current
+    ) {
+      autoCreateTriggeredRef.current = true;
+      handleCreateRoom();
+    }
+  }, [isOpen, initialMode, initialCode, currentRoom, handleCreateRoom]);
 
   // 2. Ação: Entrar na Sala com código
   const handleJoinRoom = async (e: React.FormEvent) => {
@@ -385,8 +409,21 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
           </div>
         )}
 
+        {/* Loading de Criação de Sala */}
+        {isLoading && !currentRoom && (
+          <div className="flex flex-col items-center justify-center py-12 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+              <RotateCw className="w-6 h-6 animate-spin text-blue-400" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="text-sm font-bold text-white">Criando Sala Privada</h3>
+              <p className="text-xs text-slate-400">Gerando código exclusivo para {gameTitle}...</p>
+            </div>
+          </div>
+        )}
+
         {/* 1. MODO: Options (Criar ou Entrar) */}
-        {mode === 'options' && (
+        {mode === 'options' && !isLoading && (
           <div className="space-y-4">
             <p className="text-xs text-slate-300 leading-relaxed">
               Jogue {gameTitle} em tempo real com amigos. Crie uma nova sala para gerar um código ou entre em uma sala compartilhada por outro jogador.

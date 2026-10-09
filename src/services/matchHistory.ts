@@ -275,3 +275,45 @@ export async function getLatestCompletedMatchForCurrentUser(): Promise<{
     };
   }
 }
+
+/**
+ * Marca uma partida finalizada como lida/dispensada pelo usuário no PostgreSQL
+ * através da RPC dismiss_match_result para evitar reexibições no startup.
+ */
+export async function dismissMatchResult(matchId: string): Promise<{
+  success: boolean;
+  error?: string;
+  code?: string;
+}> {
+  if (!isSupabaseConfigured) {
+    return { success: false, error: 'Supabase não está configurado.', code: 'SUPABASE_NOT_CONFIGURED' };
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('dismiss_match_result', {
+      p_match_id: matchId,
+    });
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Erro ao dispensar resultado da partida.',
+        code: error.code,
+      };
+    }
+
+    const payload = data as { success?: boolean; error?: string } | null;
+    if (payload && payload.success === false) {
+      return {
+        success: false,
+        error: payload.error || 'Erro ao processar dispensa de resultado.',
+      };
+    }
+
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Erro inesperado ao dispensar resultado.';
+    return { success: false, error: errorMsg, code: 'UNEXPECTED_ERROR' };
+  }
+}

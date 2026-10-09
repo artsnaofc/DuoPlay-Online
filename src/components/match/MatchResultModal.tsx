@@ -43,6 +43,7 @@ export interface MatchResultModalProps {
   onStartRematch?: (newMatchId: string) => void;
   onFindNewOpponent?: () => void;
   onViewUserProfile?: (userId: string) => void;
+  showRematch?: boolean;
 }
 
 export const MatchResultModal: React.FC<MatchResultModalProps> = ({
@@ -61,6 +62,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   onStartRematch,
   onFindNewOpponent,
   onViewUserProfile,
+  showRematch = true,
 }) => {
   if (!isOpen) return null;
 
@@ -183,7 +185,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
             <span>Resultado Oficial</span>
           </div>
           <button
-            onClick={onGoHome}
+            onClick={handleGoHome}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus-visible:outline-2 focus-visible:outline-blue-400"
             aria-label="Fechar e voltar à tela inicial"
           >
@@ -297,17 +299,19 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         </div>
 
         {/* Rematch Section */}
-        <RematchControl
-          originalMatchId={matchId}
-          currentUserId={currentUserId}
-          onStartRematch={handleStartRematch}
-          onFindNewOpponent={handleFindNewOpponent}
-          finishReason={finishReason}
-          isOpponentAvailable={
-            finishReason !== 'resignation' &&
-            finishReason !== 'abandonment'
-          }
-        />
+        {showRematch && (
+          <RematchControl
+            originalMatchId={matchId}
+            currentUserId={currentUserId}
+            onStartRematch={handleStartRematch}
+            onFindNewOpponent={handleFindNewOpponent}
+            finishReason={finishReason}
+            isOpponentAvailable={
+              finishReason !== 'resignation' &&
+              finishReason !== 'abandonment'
+            }
+          />
+        )}
 
         {/* Action Buttons */}
         <div className="pt-2 flex flex-col sm:flex-row gap-3">

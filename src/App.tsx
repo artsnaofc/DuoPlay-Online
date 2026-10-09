@@ -32,6 +32,7 @@ import {
 } from '@/services/matchSession';
 import {
   getLatestCompletedMatchForCurrentUser,
+  dismissMatchResult,
   type MatchHistoryItem,
 } from '@/services/matchHistory';
 import { getMyMatchmakingStatus } from '@/services/matchmaking';
@@ -62,6 +63,7 @@ function MainApp() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
+  const [lobbyInitialMode, setLobbyInitialMode] = useState<'options' | 'join' | 'waiting' | 'create'>('options');
 
   // Hook central de Matchmaking Multijogo Simultâneo
   const multiMatchmaking = useMultiMatchmaking((matchId) => {
@@ -225,10 +227,14 @@ function MainApp() {
   };
 
   const handleDismissCompletedRecovery = () => {
-    if (completedMatchRecovery && typeof window !== 'undefined' && user) {
-      const seenKey = `seen_match_result_${user.id}_${completedMatchRecovery.match_id}`;
-      localStorage.setItem(seenKey, 'true');
-      sessionStorage.setItem(seenKey, 'true');
+    if (completedMatchRecovery && user) {
+      const matchId = completedMatchRecovery.match_id;
+      if (typeof window !== 'undefined') {
+        const seenKey = `seen_match_result_${user.id}_${matchId}`;
+        localStorage.setItem(seenKey, 'true');
+        sessionStorage.setItem(seenKey, 'true');
+      }
+      dismissMatchResult(matchId).catch(() => {});
     }
     setIsCompletedResultOpen(false);
     setCompletedMatchRecovery(null);
@@ -475,6 +481,7 @@ function MainApp() {
             onOpenLobby={(gameId) => {
               if (gameId) {
                 setSelectedLobbyGameId(gameId);
+                setLobbyInitialMode('create');
                 setIsLobbyOpen(true);
               } else {
                 setIsSelectGameRoomOpen(true);
@@ -514,6 +521,7 @@ function MainApp() {
         onSelectGame={(gameId) => {
           setSelectedLobbyGameId(gameId);
           setIsSelectGameRoomOpen(false);
+          setLobbyInitialMode('create');
           setIsLobbyOpen(true);
         }}
       />
@@ -522,10 +530,12 @@ function MainApp() {
       <RoomLobbyModal
         isOpen={isLobbyOpen}
         initialCode={initialRoomCode}
+        initialMode={lobbyInitialMode}
         defaultGameId={selectedLobbyGameId}
         onClose={() => {
           setIsLobbyOpen(false);
           setInitialRoomCode(null);
+          setLobbyInitialMode('options');
           refreshActiveRoom();
         }}
         onMatchStarted={handleStartMatch}
@@ -574,6 +584,7 @@ function MainApp() {
           isDraw={completedMatchRecovery.is_draw}
           finishReason={completedMatchRecovery.finish_reason}
           currentUserId={user?.id || null}
+          showRematch={false}
           myPlayer={{
             userId: user?.id || null,
             gameSymbol: completedMatchRecovery.my_symbol,

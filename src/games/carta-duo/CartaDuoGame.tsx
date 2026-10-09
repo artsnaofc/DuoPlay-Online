@@ -449,7 +449,7 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
         </div>
         <div className="text-center space-y-1">
           <h2 className="text-base font-bold text-white">Carregando Carta Duo</h2>
-          <p className="text-xs text-slate-400">Sincronizando estado oficial com o PostgreSQL...</p>
+          <p className="text-xs text-slate-400">Sincronizando partida oficial...</p>
         </div>
       </div>
     );
@@ -662,7 +662,7 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
         </div>
       )}
 
-      {/* 3. TELA DE INICIALIZAÇÃO LAZY (SE BARALHO AINDA NÃO GERADO) */}
+      {/* 3. TELA DE INICIALIZAÇÃO (SE BARALHO AINDA NÃO GERADO) */}
       {!isInitialized && !isFinished && (
         <div className="p-8 rounded-3xl bg-slate-900/90 border border-slate-800 text-center space-y-4 shadow-2xl relative overflow-hidden">
           <div className="w-14 h-14 rounded-2xl bg-blue-600/10 border border-blue-500/30 flex items-center justify-center text-blue-400 mx-auto">
@@ -671,7 +671,7 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
           <div className="space-y-1 max-w-sm mx-auto">
             <h3 className="text-base font-extrabold text-white">Pronto para Jogar!</h3>
             <p className="text-xs text-slate-400">
-              O embaralhamento de 108 cartas e as mãos dos jogadores serão distribuídos no PostgreSQL.
+              O baralho e as mãos dos jogadores estão sendo distribuídos...
             </p>
           </div>
           {isMyTurn ? (
