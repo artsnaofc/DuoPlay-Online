@@ -64,6 +64,38 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const markAsSeen = () => {
+    if (currentUserId && matchId && typeof window !== 'undefined') {
+      const seenKey = `seen_match_result_${currentUserId}_${matchId}`;
+      localStorage.setItem(seenKey, 'true');
+      sessionStorage.setItem(seenKey, 'true');
+    }
+  };
+
+  const handleGoHome = () => {
+    markAsSeen();
+    onGoHome();
+  };
+
+  const handleViewHistory = () => {
+    markAsSeen();
+    onViewHistory();
+  };
+
+  const handleStartRematch = (newMatchId: string) => {
+    markAsSeen();
+    if (onStartRematch) {
+      onStartRematch(newMatchId);
+    }
+  };
+
+  const handleFindNewOpponent = () => {
+    markAsSeen();
+    if (onFindNewOpponent) {
+      onFindNewOpponent();
+    }
+  };
+
   const isFinished = status === 'finished' || status === 'abandoned' || status === 'cancelled';
   if (!isFinished) return null;
 
@@ -268,8 +300,8 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         <RematchControl
           originalMatchId={matchId}
           currentUserId={currentUserId}
-          onStartRematch={onStartRematch}
-          onFindNewOpponent={onFindNewOpponent}
+          onStartRematch={handleStartRematch}
+          onFindNewOpponent={handleFindNewOpponent}
           finishReason={finishReason}
           isOpponentAvailable={
             finishReason !== 'resignation' &&
@@ -281,7 +313,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
         <div className="pt-2 flex flex-col sm:flex-row gap-3">
           <button
             type="button"
-            onClick={onGoHome}
+            onClick={handleGoHome}
             className="flex-1 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-blue-950/40 transition-colors flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-[0.98]"
           >
             <Home className="w-4 h-4" />
@@ -290,7 +322,7 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
 
           <button
             type="button"
-            onClick={onViewHistory}
+            onClick={handleViewHistory}
             className="flex-1 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs sm:text-sm transition-colors flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-slate-400 active:scale-[0.98]"
           >
             <History className="w-4 h-4 text-slate-400" />
