@@ -50,6 +50,8 @@ interface CartaDuoGameProps {
 interface CartaDuoState {
   config: {
     initial_cards?: number;
+    cumulative_draw?: boolean;
+    allow_same_number?: boolean;
     force_draw?: boolean;
     play_immediately?: boolean;
     turn_timer?: number;
@@ -63,6 +65,13 @@ interface CartaDuoState {
   direction?: number;
   turn_order?: string[];
   current_turn_player_id?: string | null;
+  pending_draws?: number;
+  same_number_sequence?: {
+    active: boolean;
+    player_id: string | null;
+    number: string | null;
+  };
+  last_card_declarations?: Record<string, boolean>;
   winner_id?: string | null;
   is_finished?: boolean;
 }
@@ -237,21 +246,60 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
   const activeColor = state?.active_color || parsedTopCard?.color || 'red';
   const activeValue = state?.active_value || parsedTopCard?.value || '';
 
+  // Configurações e estados dinâmicos das regras oficiais
+  const pendingDraws = state?.pending_draws || 0;
+  const isPendingPenalty = pendingDraws > 0;
+  const cumulativeDrawEnabled = state?.config?.cumulative_draw ?? true;
+  const allowSameNumberEnabled = state?.config?.allow_same_number ?? false;
+  const sameNumberSeq = state?.same_number_sequence;
+  const isMySameNumberSeq = Boolean(
+    sameNumberSeq?.active && sameNumberSeq?.player_id === currentUserId
+  );
+  const myLastCardDeclared = Boolean(
+    currentUserId && state?.last_card_declarations?.[currentUserId]
+  );
+  const canDeclareLastCard = Boolean(
+    myHand.length <= 2 && myHand.length > 0 && !myLastCardDeclared && !isFinished
+  );
+
   // Verifica se uma carta específica da mão é jogável no momento
-  // Regra Oficial: cartas Wild sempre jogáveis; demais coincidem com cor ativa ou valor ativo
   const isCardPlayable = useCallback(
     (cardCode: string) => {
       if (!isMyTurn || isFinished || !isInitialized) return false;
 
       const card = parseCard(cardCode);
+
+      // Caso 1: Jogador está em sequência ativa de cartas com o mesmo número
+      if (isMySameNumberSeq && sameNumberSeq?.number) {
+        return card.value === sameNumberSeq.number;
+      }
+
+      // Caso 2: Jogador está respondendo a uma penalidade de compra acumulada (+2 ou +4)
+      if (isPendingPenalty) {
+        if (!cumulativeDrawEnabled) return false;
+        return card.value === 'draw2' || card.value === 'draw4';
+      }
+
+      // Caso 3: Descarte padrão
       if (card.color === 'wild') return true;
       if (activeColor === 'wild') return true;
       return card.color === activeColor || card.value === activeValue;
     },
-    [isMyTurn, isFinished, isInitialized, activeColor, activeValue, parseCard]
+    [
+      isMyTurn,
+      isFinished,
+      isInitialized,
+      isMySameNumberSeq,
+      sameNumberSeq?.number,
+      isPendingPenalty,
+      cumulativeDrawEnabled,
+      activeColor,
+      activeValue,
+      parseCard,
+    ]
   );
 
-  // Executa jogada
+  // Executa jogada de carta (play_card)
   const handlePlayCard = async (cardCode: string, chosenColor?: string) => {
     if (!isMyTurn || isFinished || submittingAction) return;
 
@@ -308,6 +356,94 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
     } catch {
       if (soundEnabled) playTone('error');
       setFeedbackError('Erro ao comunicar compra de carta.');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  // Declaração de Última Carta
+  const handleDeclareLastCard = async () => {
+    if (submittingAction || isFinished) return;
+    setFeedbackError(null);
+    setSubmittingAction(true);
+
+    try {
+      const res = await submitAction('declare_last_card', {});
+      if (!res.accepted && res.error) {
+        if (soundEnabled) playTone('error');
+        setFeedbackError(res.error.message || 'Erro ao declarar Última Carta.');
+      } else {
+        if (soundEnabled) playTone('play');
+      }
+    } catch {
+      if (soundEnabled) playTone('error');
+      setFeedbackError('Falha ao comunicar declaração de Última Carta.');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  // Contestação de Última Carta contra adversário que não declarou
+  const handleChallengeLastCard = async (targetPlayerId: string) => {
+    if (submittingAction || isFinished) return;
+    setFeedbackError(null);
+    setSubmittingAction(true);
+
+    try {
+      const res = await submitAction('challenge_last_card', { target_player_id: targetPlayerId });
+      if (!res.accepted && res.error) {
+        if (soundEnabled) playTone('error');
+        setFeedbackError(res.error.message || 'Contestação não aceita.');
+      } else {
+        if (soundEnabled) playTone('play');
+      }
+    } catch {
+      if (soundEnabled) playTone('error');
+      setFeedbackError('Falha ao contestar Última Carta.');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  // Aceitar / Receber Penalidade de Compra Acumulada
+  const handleAcceptPenalty = async () => {
+    if (!isMyTurn || isFinished || submittingAction || pendingDraws <= 0) return;
+    setFeedbackError(null);
+    setSubmittingAction(true);
+
+    try {
+      const res = await submitAction('accept_penalty', {});
+      if (!res.accepted && res.error) {
+        if (soundEnabled) playTone('error');
+        setFeedbackError(res.error.message || 'Erro ao aceitar penalidade.');
+      } else {
+        if (soundEnabled) playTone('draw');
+      }
+    } catch {
+      if (soundEnabled) playTone('error');
+      setFeedbackError('Falha ao aceitar penalidade de compra.');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  // Encerrar voluntariamente sequência de cartas do mesmo número
+  const handleEndSequence = async () => {
+    if (!isMyTurn || isFinished || submittingAction || !isMySameNumberSeq) return;
+    setFeedbackError(null);
+    setSubmittingAction(true);
+
+    try {
+      const res = await submitAction('end_sequence', {});
+      if (!res.accepted && res.error) {
+        if (soundEnabled) playTone('error');
+        setFeedbackError(res.error.message || 'Erro ao encerrar sequência.');
+      } else {
+        if (soundEnabled) playTone('play');
+      }
+    } catch {
+      if (soundEnabled) playTone('error');
+      setFeedbackError('Falha ao comunicar encerramento da sequência.');
     } finally {
       setSubmittingAction(false);
     }
@@ -626,19 +762,43 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
                   <span>{oppCardCount}</span>
                 </div>
 
-                {isOppDisconnected ? (
-                  <span className="text-[9px] font-bold text-red-400 bg-red-950/60 px-1.5 py-0.5 rounded border border-red-900/40">
-                    Offline
-                  </span>
-                ) : isOppTurn ? (
-                  <span className="text-[9px] font-bold text-purple-300 bg-purple-950/80 px-1.5 py-0.5 rounded border border-purple-800/60 animate-pulse">
-                    Jogando
-                  </span>
-                ) : (
-                  <span className="text-[9px] text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-900/30">
-                    Online
-                  </span>
-                )}
+                <div className="flex items-center gap-1">
+                  {/* Indicador e Contestação de Última Carta para Oponente com 1 carta */}
+                  {oppCardCount === 1 && (
+                    state?.last_card_declarations?.[opp.userId] ? (
+                      <span className="text-[9px] font-black text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-600/50">
+                        🃏 Última Carta
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleChallengeLastCard(opp.userId);
+                        }}
+                        disabled={submittingAction}
+                        className="text-[9px] font-black text-amber-300 bg-red-950/90 hover:bg-red-900 border border-red-600/70 px-1.5 py-0.5 rounded animate-pulse cursor-pointer shadow-sm active:scale-95"
+                        title="Contestar oponente que não declarou Última Carta (+2 penalidade)"
+                      >
+                        Contestar (+2)
+                      </button>
+                    )
+                  )}
+
+                  {isOppDisconnected ? (
+                    <span className="text-[9px] font-bold text-red-400 bg-red-950/60 px-1.5 py-0.5 rounded border border-red-900/40">
+                      Offline
+                    </span>
+                  ) : isOppTurn ? (
+                    <span className="text-[9px] font-bold text-purple-300 bg-purple-950/80 px-1.5 py-0.5 rounded border border-purple-800/60 animate-pulse">
+                      Jogando
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-emerald-400 bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-900/30">
+                      Online
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -658,6 +818,70 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
             className="py-1.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition-all active:scale-95 shrink-0"
           >
             Reivindicar W.O.
+          </button>
+        </div>
+      )}
+
+      {/* BANNER DE PENALIDADE DE COMPRA ACUMULADA (+2 / +4) */}
+      {isPendingPenalty && !isFinished && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/90 via-red-950/80 to-amber-950/90 border border-amber-500/70 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 flex items-center justify-center font-black text-sm shrink-0">
+              +{pendingDraws}
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-extrabold text-amber-200 flex items-center gap-1.5">
+                <span>Penalidade Acumulada: +{pendingDraws} Cartas!</span>
+              </h4>
+              <p className="text-[11px] text-amber-300/80">
+                {isMyTurn
+                  ? cumulativeDrawEnabled
+                    ? '⚡ Defenda jogando outro +2 ou +4 para acumular, ou clique em Aceitar Penalidade.'
+                    : 'Acúmulo desativado. Aceite as cartas devidas para prosseguir.'
+                  : 'Aguardando o jogador da vez acumular ou receber a penalidade.'}
+              </p>
+            </div>
+          </div>
+
+          {isMyTurn && (
+            <button
+              type="button"
+              onClick={handleAcceptPenalty}
+              disabled={submittingAction}
+              className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs shadow-md shadow-amber-950/50 transition-all flex items-center justify-center gap-1.5 shrink-0 active:scale-95 disabled:opacity-50"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              <span>Aceitar Penalidade (+{pendingDraws})</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* BANNER DE SEQUÊNCIA DE CARTAS COM MESMO NÚMERO */}
+      {isMySameNumberSeq && !isFinished && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-950/90 via-indigo-950/80 to-purple-950/90 border border-purple-500/70 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/50 text-purple-300 flex items-center justify-center font-black text-base shrink-0 font-mono">
+              {sameNumberSeq?.number}
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-extrabold text-purple-200">
+                Sequência Ativa: Cartas Número {sameNumberSeq?.number}
+              </h4>
+              <p className="text-[11px] text-purple-300/80">
+                Você pode jogar outras cartas de número {sameNumberSeq?.number} de qualquer cor, ou encerrar quando quiser.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleEndSequence}
+            disabled={submittingAction}
+            className="py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs shadow-md shadow-purple-950/50 transition-all flex items-center justify-center gap-1.5 shrink-0 active:scale-95 disabled:opacity-50"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Encerrar Sequência</span>
           </button>
         </div>
       )}
@@ -717,19 +941,23 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
                     ? 'border-blue-500/70 bg-gradient-to-br from-blue-950 via-slate-900 to-slate-950 hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(59,130,246,0.25)] ring-2 ring-blue-500/30 cursor-pointer'
                     : 'border-slate-800 bg-slate-950/60 opacity-60 cursor-not-allowed'
                 }`}
-                title={isMyTurn ? 'Toque para comprar carta' : 'Aguarde o seu turno'}
+                title={isMyTurn ? (isPendingPenalty ? 'Aceitar penalidade e comprar cartas devidas' : 'Toque para comprar carta') : 'Aguarde o seu turno'}
               >
                 {/* Camadas 3D do baralho */}
                 <div className="w-20 h-28 sm:w-24 sm:h-32 rounded-xl bg-gradient-to-br from-blue-700 via-indigo-900 to-slate-950 border border-blue-400/50 flex flex-col items-center justify-center shadow-inner">
                   <span className="text-xl sm:text-2xl font-black font-mono tracking-widest text-blue-200">
                     DUO
                   </span>
-                  <span className="text-[9px] font-bold text-blue-300/70 mt-1 uppercase">Comprar</span>
+                  <span className="text-[9px] font-bold text-blue-300/70 mt-1 uppercase">
+                    {isPendingPenalty ? `+${pendingDraws}` : 'Comprar'}
+                  </span>
                 </div>
 
                 {isMyTurn && (
-                  <span className="absolute -bottom-2 px-2.5 py-0.5 rounded-full bg-blue-600 text-white text-[9px] font-black uppercase tracking-wider shadow">
-                    +1 Carta
+                  <span className={`absolute -bottom-2 px-2.5 py-0.5 rounded-full text-white text-[9px] font-black uppercase tracking-wider shadow ${
+                    isPendingPenalty ? 'bg-amber-600' : 'bg-blue-600'
+                  }`}>
+                    {isPendingPenalty ? `+${pendingDraws} Cartas` : '+1 Carta'}
                   </span>
                 )}
               </button>
@@ -783,14 +1011,14 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
             </div>
 
             {/* 4.3. RESUMO E ESTATÍSTICAS RÁPIDAS DA MESA (COLUNA 3 EM DESKTOP) */}
-            <div className="col-span-2 sm:col-span-1 flex flex-col justify-center gap-2.5 p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300">
+            <div className="col-span-2 sm:col-span-1 flex flex-col justify-center gap-2 p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300">
               <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                Regras Rápidas
+                Configurações da Partida
               </div>
               <ul className="space-y-1 text-[11px] text-slate-400 leading-tight">
-                <li>• Sem acúmulo (+2 e +4 aplicam imediatamente e passam a vez).</li>
-                <li>• Comprar do baralho encerra o turno automaticamente.</li>
-                <li>• Não existe passar a vez sem comprar.</li>
+                <li>• Acúmulo (+2/+4): <strong className="text-white">{cumulativeDrawEnabled ? 'Ativado' : 'Desativado'}</strong></li>
+                <li>• Mesmo número: <strong className="text-white">{allowSameNumberEnabled ? 'Ativado' : 'Desativado'}</strong></li>
+                <li>• Última Carta: <strong className="text-amber-300">Declaração Ativa</strong></li>
               </ul>
               <div className="pt-1 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500">
                 <span>Direção:</span>
@@ -804,7 +1032,7 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
       {/* 5. MINHA MÃO DE CARTAS (FAN DECK HORIZONTAL ERGONÔMICO) */}
       {isInitialized && !isFinished && (
         <section className="space-y-2.5">
-          <div className="flex items-center justify-between px-1">
+          <div className="flex items-center justify-between px-1 flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-blue-400" />
               <h3 className="text-sm font-bold text-white">Sua Mão</h3>
@@ -813,13 +1041,40 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
               </span>
             </div>
 
-            {isMyTurn && (
-              <span className="text-xs font-bold text-emerald-400 animate-pulse">
-                {playableCardsCount > 0
-                  ? 'Toque em uma carta iluminada para jogar'
-                  : 'Nenhuma carta jogável — compre do baralho'}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {/* Botão e Indicador de Última Carta */}
+              {myLastCardDeclared ? (
+                <span className="px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-extrabold text-[11px] flex items-center gap-1.5 shadow-sm">
+                  <span>🃏</span>
+                  <span>Última Carta Declarada!</span>
+                </span>
+              ) : canDeclareLastCard ? (
+                <button
+                  type="button"
+                  onClick={handleDeclareLastCard}
+                  disabled={submittingAction}
+                  className="py-1.5 px-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs shadow-lg shadow-amber-950/50 transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50 animate-bounce cursor-pointer"
+                  title="Declarar Última Carta para evitar contestação e penalidade de +2"
+                >
+                  <span>🃏</span>
+                  <span>Declarar Última Carta!</span>
+                </button>
+              ) : null}
+
+              {isMyTurn && (
+                <span className="text-xs font-bold text-emerald-400">
+                  {playableCardsCount > 0
+                    ? isMySameNumberSeq
+                      ? `Jogue outro ${sameNumberSeq?.number} ou encerre`
+                      : isPendingPenalty
+                      ? `Defenda com +2/+4 ou aceite a penalidade`
+                      : 'Toque em uma carta iluminada para jogar'
+                    : isPendingPenalty
+                    ? 'Sem defesa — aceite a penalidade'
+                    : 'Nenhuma jogável — compre do baralho'}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Área de Scroll Horizontal das Cartas */}
@@ -874,22 +1129,56 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
 
       {/* 6. BOTÃO DE AÇÃO DO JOGADOR NO RODAPÉ (THUMB ZONE) */}
       {isInitialized && !isFinished && isMyTurn && (
-        <div className="pt-1">
-          <button
-            type="button"
-            onClick={handleDrawCard}
-            disabled={submittingAction}
-            className="w-full py-3.5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-sm shadow-xl shadow-blue-900/30 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
-          >
-            {submittingAction ? (
-              <RefreshCw className="w-5 h-5 animate-spin" />
-            ) : (
-              <Plus className="w-5 h-5" />
-            )}
-            <span>Comprar Carta do Baralho (+1)</span>
-          </button>
-          <p className="text-[11px] text-center text-slate-400 mt-1.5">
-            Ao comprar do baralho, o turno avança automaticamente para o próximo jogador.
+        <div className="pt-1 flex flex-col gap-2">
+          {isPendingPenalty ? (
+            <button
+              type="button"
+              onClick={handleAcceptPenalty}
+              disabled={submittingAction}
+              className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-900/30 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+            >
+              {submittingAction ? (
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              ) : (
+                <ShieldAlert className="w-5 h-5" />
+              )}
+              <span>Aceitar Penalidade de Compra (+{pendingDraws} cartas)</span>
+            </button>
+          ) : isMySameNumberSeq ? (
+            <button
+              type="button"
+              onClick={handleEndSequence}
+              disabled={submittingAction}
+              className="w-full py-3.5 px-6 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-black text-sm shadow-xl shadow-purple-900/30 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+            >
+              {submittingAction ? (
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5" />
+              )}
+              <span>Encerrar Sequência e Passar Turno</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleDrawCard}
+              disabled={submittingAction}
+              className="w-full py-3.5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-sm shadow-xl shadow-blue-900/30 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
+            >
+              {submittingAction ? (
+                <RefreshCw className="w-5 h-5 animate-spin" />
+              ) : (
+                <Plus className="w-5 h-5" />
+              )}
+              <span>Comprar Carta do Baralho (+1)</span>
+            </button>
+          )}
+          <p className="text-[11px] text-center text-slate-400">
+            {isPendingPenalty
+              ? 'Ao aceitar a penalidade, você compra o total acumulado e perde a sua vez.'
+              : isMySameNumberSeq
+              ? 'Encerre quando não quiser mais jogar cartas com o mesmo número.'
+              : 'Ao comprar do baralho, o turno avança automaticamente para o próximo jogador.'}
           </p>
         </div>
       )}
@@ -998,20 +1287,44 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
                 No seu turno, jogue uma carta que coincida em cor ou valor com o topo da mesa, ou qualquer carta Coringa (Wild).
               </div>
               <div>
-                <strong className="text-white block font-bold">3. Sem Acúmulo de Compras</strong>
-                Se alguém jogar +2 ou +4, o próximo jogador compra as cartas imediatamente e perde a sua vez. O turno avança para o jogador seguinte. Não é permitido encadear cartas de compra para repassar a penalidade.
+                <strong className="text-white block font-bold">3. Declaração de Última Carta</strong>
+                Ao ficar com apenas 1 carta na mão (ou ao jogá-la), você deve clicar no botão <strong className="text-amber-300">"Declarar Última Carta"</strong>. Se você não declarar e um oponente contestar, você receberá uma penalidade imediata de +2 cartas do baralho!
               </div>
               <div>
-                <strong className="text-white block font-bold">4. Compra e Turno</strong>
-                Não existe ação de "passar a vez". Se não tiver carta jogável, você deve comprar 1 carta do baralho, o que avança o turno automaticamente.
+                <strong className="text-white block font-bold">4. Acúmulo de Compra (+2 e +4)</strong>
+                {cumulativeDrawEnabled ? (
+                  <span>
+                    <span className="text-emerald-400 font-bold">Ativado nesta partida:</span> Quando receber uma penalidade de +2 ou +4, você pode responder jogando outro +2 ou +4 para acumular e repassar a soma ao próximo jogador. Caso não queira ou não possa defender, clique em "Aceitar Penalidade" para comprar o total acumulado e perder a vez.
+                  </span>
+                ) : (
+                  <span>
+                    <span className="text-slate-400 font-bold">Desativado nesta partida:</span> Ao receber +2 ou +4, as cartas são compradas imediatamente pelo próximo jogador, que perde a vez sem direito a repassar.
+                  </span>
+                )}
               </div>
               <div>
-                <strong className="text-white block font-bold">5. Cartas Especiais</strong>
+                <strong className="text-white block font-bold">5. Múltiplas Cartas do Mesmo Número</strong>
+                {allowSameNumberEnabled ? (
+                  <span>
+                    <span className="text-purple-300 font-bold">Ativado nesta partida:</span> Você pode jogar cartas adicionais do mesmo número (0-9) no mesmo turno, independente da cor. A sequência mantém sua vez enquanto você quiser jogar ou encerrar voluntariamente no botão "Encerrar Sequência".
+                  </span>
+                ) : (
+                  <span>
+                    <span className="text-slate-400 font-bold">Desativado nesta partida:</span> Estritamente 1 carta por turno.
+                  </span>
+                )}
+              </div>
+              <div>
+                <strong className="text-white block font-bold">6. Compra e Turno</strong>
+                Não existe ação de "passar a vez" sem jogar. Se não tiver carta jogável, compre do baralho (+1), o que avança o turno automaticamente para o próximo jogador.
+              </div>
+              <div>
+                <strong className="text-white block font-bold">7. Efeitos das Cartas Especiais</strong>
                 <ul className="list-disc pl-4 mt-1 space-y-0.5 text-slate-400">
                   <li><strong>Skip (🚫):</strong> Pula o próximo jogador.</li>
-                  <li><strong>Reverse (⇄):</strong> Inverte o sentido do jogo (em 2 jogadores funciona como Skip).</li>
-                  <li><strong>+2:</strong> O próximo compra 2 cartas e é pulado.</li>
-                  <li><strong>+4 Wild:</strong> Escolhe a cor; o próximo compra 4 cartas e é pulado.</li>
+                  <li><strong>Reverse (⇄):</strong> Inverte o sentido do jogo (em 2 jogadores pula o oponente).</li>
+                  <li><strong>+2:</strong> Aplica ou acumula +2 cartas de compra.</li>
+                  <li><strong>+4 Wild:</strong> Escolhe a cor ativa e aplica ou acumula +4 cartas.</li>
                 </ul>
               </div>
             </div>

@@ -605,7 +605,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
                       {/* 2. Acúmulo de Cartas */}
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-400">Acúmulo de Compra (+2/+4):</span>
+                        <span className="font-semibold text-slate-400">Permitir acumular +2 e +4:</span>
                         {isHost ? (
                           <select
                             id="rule-cumulative-draw"
@@ -613,12 +613,32 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                             onChange={(e) => handleUpdateRule('cumulative_draw', e.target.value === 'true')}
                             className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
                           >
-                            <option value="true">Ativado (Acumular)</option>
-                            <option value="false">Desativado</option>
+                            <option value="true">Ativado (Acumular +2 e +4)</option>
+                            <option value="false">Desativado (Compra imediata)</option>
                           </select>
                         ) : (
                           <span className="font-extrabold text-white">
                             {((currentRoom.config as any)?.cumulative_draw ?? true) ? 'Ativado' : 'Desativado'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 3. Múltiplas Cartas do Mesmo Número */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Jogar mesmo número (cores livres):</span>
+                        {isHost ? (
+                          <select
+                            id="rule-allow-same-number"
+                            value={String((currentRoom.config as any)?.allow_same_number ?? false)}
+                            onChange={(e) => handleUpdateRule('allow_same_number', e.target.value === 'true')}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
+                          >
+                            <option value="false">Desativado (Padrão — 1 por turno)</option>
+                            <option value="true">Ativado (Múltiplas cartas)</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">
+                            {((currentRoom.config as any)?.allow_same_number ?? false) ? 'Ativado' : 'Desativado'}
                           </span>
                         )}
                       </div>

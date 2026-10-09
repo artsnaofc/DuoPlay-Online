@@ -22,6 +22,7 @@ interface CartaDuoState {
   config: {
     initial_cards?: number;
     cumulative_draw?: boolean;
+    allow_same_number?: boolean;
     force_draw?: boolean;
     play_immediately?: boolean;
     turn_timer?: number;
@@ -35,6 +36,13 @@ interface CartaDuoState {
   direction?: number;
   turn_order?: string[];
   current_turn_player_id?: string | null;
+  pending_draws?: number;
+  same_number_sequence?: {
+    active: boolean;
+    player_id: string | null;
+    number: string | null;
+  };
+  last_card_declarations?: Record<string, boolean>;
   winner_id?: string | null;
   is_finished?: boolean;
 }
@@ -56,6 +64,13 @@ function createCartaDuoSnapshot(params: {
   turnOrder?: string[];
   config?: any;
   turnDeadline?: string | null;
+  pendingDraws?: number;
+  sameNumberSequence?: {
+    active: boolean;
+    player_id: string | null;
+    number: string | null;
+  };
+  lastCardDeclarations?: Record<string, boolean>;
 }): GameSnapshot<CartaDuoState> {
   const playersIds = params.turnOrder || ['u-1', 'u-2', 'u-3'];
   const p1 = playersIds[0];
@@ -89,6 +104,9 @@ function createCartaDuoSnapshot(params: {
     direction: typeof params.direction === 'number' ? params.direction : 1,
     turn_order: playersIds,
     current_turn_player_id: params.currentTurnPlayerId,
+    pending_draws: params.pendingDraws ?? 0,
+    same_number_sequence: params.sameNumberSequence ?? { active: false, player_id: null, number: null },
+    last_card_declarations: params.lastCardDeclarations ?? {},
     winner_id: params.winnerId || null,
     is_finished: params.status === 'finished',
   };
@@ -617,6 +635,334 @@ describe('Fase 20: Carta Duo — Regras Oficiais, Descarte Imediato, Sem Acúmul
     assert.strictEqual(finishRes.snapshot?.status, 'finished');
     assert.strictEqual(finishRes.snapshot?.winnerId, player1Id);
     assert.strictEqual(finishRes.snapshot?.state.hands?.['u-1'].length, 0);
+
+    controller.destroy();
+  });
+
+  // 10. Declaração autoritativa de Última Carta (declare_last_card)
+  it('10. Deve permitir declaração de Última Carta para jogador com 1 ou 2 cartas e sincronizar estado', async () => {
+    const matchId = 'cd-match-0010';
+    const player1Id = 'u-1';
+    const player2Id = 'u-2';
+
+    const snapBefore = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 5,
+      currentTurnPlayerId: player1Id,
+      turnOrder: [player1Id, player2Id],
+      hands: {
+        'u-1': ['red:9'], // Exatamente 1 carta
+        'u-2': ['blue:3', 'green:4'],
+      },
+      lastCardDeclarations: {},
+    });
+
+    let serverSnap = snapBefore;
+    setSnapshotFetcherForTest(async <TState = unknown>() => serverSnap as unknown as GameSnapshot<TState>);
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      assert.strictEqual(input.actionType, 'declare_last_card');
+
+      serverSnap = createCartaDuoSnapshot({
+        matchId,
+        turnNumber: 5,
+        currentTurnPlayerId: player1Id,
+        turnOrder: [player1Id, player2Id],
+        hands: {
+          'u-1': ['red:9'],
+          'u-2': ['blue:3', 'green:4'],
+        },
+        lastCardDeclarations: { [player1Id]: true },
+      });
+
+      return {
+        accepted: true,
+        snapshot: serverSnap as unknown as GameSnapshot<TState>,
+        error: null,
+        actionId: input.actionId || generateActionId(),
+      };
+    });
+
+    const controller = new GameSessionController<CartaDuoState>(matchId);
+    await controller.init();
+
+    const res = await controller.submitAction('declare_last_card', {});
+    assert.strictEqual(res.accepted, true);
+    assert.strictEqual(res.snapshot?.state.last_card_declarations?.[player1Id], true);
+
+    // Persistência e integridade pós-reconexão
+    const refreshed = await reconnectMatch<CartaDuoState>(matchId);
+    assert.strictEqual(refreshed.state.last_card_declarations?.[player1Id], true);
+
+    controller.destroy();
+  });
+
+  // 11. Contestação de Última Carta e penalidade de +2 cartas (challenge_last_card)
+  it('11. Deve aplicar penalidade de +2 cartas ao jogador alvo com 1 carta que não declarou Última Carta', async () => {
+    const matchId = 'cd-match-0011';
+    const player1Id = 'u-1';
+    const player2Id = 'u-2';
+
+    // Player 1 tem 1 carta mas não declarou (last_card_declarations vazio)
+    const snapBefore = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 6,
+      currentTurnPlayerId: player2Id,
+      turnOrder: [player1Id, player2Id],
+      hands: {
+        'u-1': ['red:9'], // Alvo com 1 carta e sem declaração
+        'u-2': ['blue:3', 'green:4'],
+      },
+      lastCardDeclarations: {},
+      deck: ['yellow:2', 'green:5', 'blue:1'],
+    });
+
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapBefore as unknown as GameSnapshot<TState>);
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      assert.strictEqual(input.actionType, 'challenge_last_card');
+      const payload = input.payload as any;
+      assert.strictEqual(payload.target_player_id, player1Id);
+
+      const updatedSnap = createCartaDuoSnapshot({
+        matchId,
+        turnNumber: 6,
+        currentTurnPlayerId: player2Id,
+        turnOrder: [player1Id, player2Id],
+        hands: {
+          'u-1': ['red:9', 'yellow:2', 'green:5'], // Comprou 2 cartas de penalidade
+          'u-2': ['blue:3', 'green:4'],
+        },
+        lastCardDeclarations: { [player1Id]: false },
+        deck: ['blue:1'],
+      });
+
+      return {
+        accepted: true,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
+        error: null,
+        actionId: input.actionId || generateActionId(),
+      };
+    });
+
+    const controller = new GameSessionController<CartaDuoState>(matchId);
+    await controller.init();
+
+    const challengeRes = await controller.submitAction('challenge_last_card', { target_player_id: player1Id });
+    assert.strictEqual(challengeRes.accepted, true);
+    assert.strictEqual(challengeRes.snapshot?.state.hands?.[player1Id].length, 3, 'Alvo deve agora ter 3 cartas');
+
+    controller.destroy();
+  });
+
+  // 12. Acúmulo de +2 e +4 ativado: ambos os jogadores podem acumular penalidade
+  it('12. Com acúmulo ativado, Player 1 joga +2 e Player 2 responde com +2 acumulando +4', async () => {
+    const matchId = 'cd-match-0012';
+    const player1Id = 'u-1';
+    const player2Id = 'u-2';
+
+    // Estado inicial: acúmulo habilitado nas configurações
+    const snap1 = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 2,
+      currentTurnPlayerId: player1Id,
+      turnOrder: [player1Id, player2Id],
+      config: { cumulative_draw: true },
+      activeColor: 'red',
+      activeValue: '3',
+      discardPile: ['red:3'],
+      topCard: 'red:3',
+      hands: {
+        'u-1': ['red:draw2', 'blue:5'],
+        'u-2': ['green:draw2', 'yellow:1'],
+      },
+      pendingDraws: 0,
+    });
+
+    setSnapshotFetcherForTest(async <TState = unknown>() => snap1 as unknown as GameSnapshot<TState>);
+
+    let currentSnap = snap1;
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      const payload = input.payload as any;
+
+      if (input.actionType === 'play_card' && payload.card === 'red:draw2') {
+        currentSnap = createCartaDuoSnapshot({
+          matchId,
+          turnNumber: 3,
+          currentTurnPlayerId: player2Id, // Passa para Player 2 responder à penalidade
+          turnOrder: [player1Id, player2Id],
+          config: { cumulative_draw: true },
+          activeColor: 'red',
+          activeValue: 'draw2',
+          discardPile: ['red:draw2', 'red:3'],
+          topCard: 'red:draw2',
+          hands: {
+            'u-1': ['blue:5'],
+            'u-2': ['green:draw2', 'yellow:1'],
+          },
+          pendingDraws: 2,
+        });
+      } else if (input.actionType === 'play_card' && payload.card === 'green:draw2') {
+        currentSnap = createCartaDuoSnapshot({
+          matchId,
+          turnNumber: 4,
+          currentTurnPlayerId: player1Id, // Penalidade acumulada de 4 passa de volta para Player 1
+          turnOrder: [player1Id, player2Id],
+          config: { cumulative_draw: true },
+          activeColor: 'green',
+          activeValue: 'draw2',
+          discardPile: ['green:draw2', 'red:draw2', 'red:3'],
+          topCard: 'green:draw2',
+          hands: {
+            'u-1': ['blue:5'],
+            'u-2': ['yellow:1'],
+          },
+          pendingDraws: 4, // 2 + 2 = 4
+        });
+      }
+
+      return {
+        accepted: true,
+        snapshot: currentSnap as unknown as GameSnapshot<TState>,
+        error: null,
+        actionId: input.actionId || generateActionId(),
+      };
+    });
+
+    const c1 = new GameSessionController<CartaDuoState>(matchId);
+    await c1.init();
+
+    // Player 1 joga red:draw2 -> pendingDraws = 2, vez de Player 2
+    const res1 = await c1.submitAction('play_card', { card: 'red:draw2' });
+    assert.strictEqual(res1.accepted, true);
+    assert.strictEqual(res1.snapshot?.state.pending_draws, 2);
+    assert.strictEqual(res1.snapshot?.currentTurnPlayerId, player2Id);
+
+    // Player 2 responde com green:draw2 -> pendingDraws = 4, volta para Player 1
+    const res2 = await c1.submitAction('play_card', { card: 'green:draw2' });
+    assert.strictEqual(res2.accepted, true);
+    assert.strictEqual(res2.snapshot?.state.pending_draws, 4);
+    assert.strictEqual(res2.snapshot?.currentTurnPlayerId, player1Id);
+
+    c1.destroy();
+  });
+
+  // 13. Encerramento voluntário de penalidade (accept_penalty)
+  it('13. Encerramento voluntário de penalidade compra todas as cartas acumuladas e passa a vez', async () => {
+    const matchId = 'cd-match-0013';
+    const player1Id = 'u-1';
+    const player2Id = 'u-2';
+
+    const snapPending = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 4,
+      currentTurnPlayerId: player1Id,
+      turnOrder: [player1Id, player2Id],
+      config: { cumulative_draw: true },
+      hands: {
+        'u-1': ['blue:5'],
+        'u-2': ['yellow:1'],
+      },
+      pendingDraws: 4,
+      deck: ['d1', 'd2', 'd3', 'd4', 'd5'],
+    });
+
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapPending as unknown as GameSnapshot<TState>);
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      assert.strictEqual(input.actionType, 'accept_penalty');
+
+      const updatedSnap = createCartaDuoSnapshot({
+        matchId,
+        turnNumber: 5,
+        currentTurnPlayerId: player2Id, // Turno passa para o adversário após aceitar a penalidade
+        turnOrder: [player1Id, player2Id],
+        config: { cumulative_draw: true },
+        hands: {
+          'u-1': ['blue:5', 'd1', 'd2', 'd3', 'd4'], // Comprou 4 cartas
+          'u-2': ['yellow:1'],
+        },
+        pendingDraws: 0,
+        deck: ['d5'],
+      });
+
+      return {
+        accepted: true,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
+        error: null,
+        actionId: input.actionId || generateActionId(),
+      };
+    });
+
+    const controller = new GameSessionController<CartaDuoState>(matchId);
+    await controller.init();
+
+    const acceptRes = await controller.submitAction('accept_penalty', {});
+    assert.strictEqual(acceptRes.accepted, true);
+    assert.strictEqual(acceptRes.snapshot?.state.hands?.[player1Id].length, 5);
+    assert.strictEqual(acceptRes.snapshot?.state.pending_draws, 0);
+    assert.strictEqual(acceptRes.snapshot?.currentTurnPlayerId, player2Id);
+
+    controller.destroy();
+  });
+
+  // 14. Múltiplas cartas do mesmo número: encerramento voluntário com end_sequence
+  it('14. Sequência de cartas com o mesmo número permite jogar múltiplas e encerrar com end_sequence', async () => {
+    const matchId = 'cd-match-0014';
+    const player1Id = 'u-1';
+    const player2Id = 'u-2';
+
+    const snapSeq = createCartaDuoSnapshot({
+      matchId,
+      turnNumber: 2,
+      currentTurnPlayerId: player1Id,
+      turnOrder: [player1Id, player2Id],
+      config: { allow_same_number: true },
+      activeColor: 'red',
+      activeValue: '5',
+      discardPile: ['red:5'],
+      topCard: 'red:5',
+      hands: {
+        'u-1': ['blue:5', 'green:5', 'yellow:2'],
+        'u-2': ['yellow:1'],
+      },
+      sameNumberSequence: { active: true, player_id: player1Id, number: '5' },
+    });
+
+    setSnapshotFetcherForTest(async <TState = unknown>() => snapSeq as unknown as GameSnapshot<TState>);
+
+    setActionSubmitterForTest(async <TState = unknown, TPayload = unknown>(input: SubmitActionInput<TPayload>): Promise<ActionResult<TState>> => {
+      assert.strictEqual(input.actionType, 'end_sequence');
+
+      const updatedSnap = createCartaDuoSnapshot({
+        matchId,
+        turnNumber: 3,
+        currentTurnPlayerId: player2Id, // Turno avança oficialmente
+        turnOrder: [player1Id, player2Id],
+        config: { allow_same_number: true },
+        hands: {
+          'u-1': ['blue:5', 'green:5', 'yellow:2'],
+          'u-2': ['yellow:1'],
+        },
+        sameNumberSequence: { active: false, player_id: null, number: null },
+      });
+
+      return {
+        accepted: true,
+        snapshot: updatedSnap as unknown as GameSnapshot<TState>,
+        error: null,
+        actionId: input.actionId || generateActionId(),
+      };
+    });
+
+    const controller = new GameSessionController<CartaDuoState>(matchId);
+    await controller.init();
+
+    const endSeqRes = await controller.submitAction('end_sequence', {});
+    assert.strictEqual(endSeqRes.accepted, true);
+    assert.strictEqual(endSeqRes.snapshot?.state.same_number_sequence?.active, false);
+    assert.strictEqual(endSeqRes.snapshot?.currentTurnPlayerId, player2Id);
 
     controller.destroy();
   });
