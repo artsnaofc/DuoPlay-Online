@@ -39,19 +39,44 @@ export const GameCard: React.FC<GameCardProps> = ({
     <article className="group relative flex flex-col rounded-2xl border border-slate-800/90 bg-slate-900/80 p-5 sm:p-6 transition-all duration-300 hover:border-slate-700 hover:shadow-2xl hover:shadow-blue-950/20 overflow-hidden">
       {/* Visual Artwork Banner (Se fornecido) */}
       {imageSrc ? (
-        <div className="relative w-full h-44 sm:h-48 rounded-xl overflow-hidden mb-5 bg-slate-950 border border-slate-800/80 shrink-0">
-          <img
-            src={imageSrc}
-            alt={`Arte visual do jogo ${game.title}`}
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500 ease-out"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent opacity-90" />
-          <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700/80 text-[11px] font-bold text-emerald-400 flex items-center gap-1.5 shadow-md">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Disponível</span>
-          </div>
-        </div>
+
+<div className="relative isolate mb-5 h-44 w-full shrink-0 overflow-hidden rounded-xl border border-slate-700/70 bg-slate-950 shadow-lg shadow-black/20 sm:h-48">
+  {/* Imagem de capa */}
+  <img
+    src={imageSrc}
+    alt={`Capa do jogo ${game.title}`}
+    loading="lazy"
+    decoding="async"
+    referrerPolicy="no-referrer"
+    className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-500 ease-out motion-safe:group-hover:scale-105"
+    draggable={false}
+  />
+
+  {/* Camada de contraste para legibilidade */}
+  <div
+    aria-hidden="true"
+    className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/10 to-slate-950/10"
+  />
+
+  {/* Leve vinheta nas bordas */}
+  <div
+    aria-hidden="true"
+    className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/5"
+  />
+
+  {/* Indicador de disponibilidade */}
+  <div className="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-slate-950/85 px-2.5 py-1 text-[11px] font-bold tracking-wide text-emerald-300 shadow-lg shadow-black/20 backdrop-blur-md">
+    <span
+      aria-hidden="true"
+      className="relative flex h-2 w-2"
+    >
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60 motion-reduce:animate-none" />
+      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+    </span>
+    <span>Disponível</span>
+  </div>
+</div>
+
       ) : null}
 
       {/* Header of Card */}
