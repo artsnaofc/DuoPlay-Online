@@ -251,7 +251,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           </h1>
 
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl">
-            Partidas ágeis e sincronizadas pelo PostgreSQL. Encontre um oponente público em segundos ou crie uma sala privada com código para seus amigos.
+            Encontre um oponente público em segundos ou crie uma sala privada com código para seus amigos.
           </p>
 
           <div className="pt-2 flex flex-wrap items-center gap-3">

@@ -111,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <Gamepad2 className="w-5 h-5" aria-hidden="true" />
                 </div>
                 <span className="text-base font-extrabold tracking-tight text-white flex items-center gap-0.5">
-                  DuoPlay<span className="text-blue-400">-Online</span>
+                  DuoPlay<span className="text-blue-400">Online</span>
                 </span>
               </button>
             </div>
