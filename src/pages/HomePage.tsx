@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import {
   Swords,
   KeyRound,
+  LogIn,
   History,
   Sparkles,
   Play,
@@ -40,6 +41,7 @@ const GAMES: GameItem[] = listGames().map((g) => ({
 export interface HomePageProps {
   onOpenMatchmaking?: (gameId?: string) => void;
   onOpenLobby?: (gameId?: string) => void;
+  onOpenJoinByCode?: () => void;
   onOpenHistory?: () => void;
   onOpenProfile?: () => void;
   onOpenFriends?: () => void;
@@ -51,6 +53,7 @@ export interface HomePageProps {
 export const HomePage: React.FC<HomePageProps> = ({
   onOpenMatchmaking,
   onOpenLobby,
+  onOpenJoinByCode,
   onOpenHistory,
   onOpenProfile,
   onOpenFriends,
@@ -86,6 +89,14 @@ export const HomePage: React.FC<HomePageProps> = ({
       return;
     }
     onOpenLobby?.(gameId);
+  };
+
+  const handleJoinWithCodeAction = () => {
+    if (!isAuthenticated) {
+      setAuthModalOpen(true);
+      return;
+    }
+    onOpenJoinByCode?.();
   };
 
   return (
@@ -260,6 +271,15 @@ export const HomePage: React.FC<HomePageProps> = ({
             >
               <KeyRound className="w-4 h-4 text-slate-400" />
               <span>Criar Sala Privada</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleJoinWithCodeAction()}
+              className="py-3 px-5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm transition-colors flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-slate-400 active:scale-95"
+            >
+              <LogIn className="w-4 h-4 text-blue-400" />
+              <span>Entrar com código</span>
             </button>
           </div>
         </div>

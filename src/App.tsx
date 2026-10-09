@@ -14,6 +14,7 @@ import { HomePage } from '@/pages/HomePage';
 import { ActiveGameWrapper } from '@/multiplayer/registry/ActiveGameWrapper';
 import { RoomLobbyModal } from '@/components/lobby/RoomLobbyModal';
 import { SelectGameForRoomModal } from '@/components/lobby/SelectGameForRoomModal';
+import { JoinRoomByCodeModal } from '@/components/lobby/JoinRoomByCodeModal';
 import { PublicMatchmakingModal } from '@/components/matchmaking/PublicMatchmakingModal';
 import { MultiMatchmakingModal } from '@/components/matchmaking/MultiMatchmakingModal';
 import { useMultiMatchmaking } from '@/hooks/useMultiMatchmaking';
@@ -54,6 +55,7 @@ function MainApp() {
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [isLobbyOpen, setIsLobbyOpen] = useState(false);
   const [isSelectGameRoomOpen, setIsSelectGameRoomOpen] = useState(false);
+  const [isJoinByCodeOpen, setIsJoinByCodeOpen] = useState(false);
   const [isMatchmakingOpen, setIsMatchmakingOpen] = useState(false);
   const [selectedLobbyGameId, setSelectedLobbyGameId] = useState<string>('tic_tac_toe');
   const [selectedMMGameId, setSelectedMMGameId] = useState<string | null>(null);
@@ -63,7 +65,7 @@ function MainApp() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [viewingPublicUserId, setViewingPublicUserId] = useState<string | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string | null>(null);
-  const [lobbyInitialMode, setLobbyInitialMode] = useState<'options' | 'join' | 'waiting' | 'create'>('options');
+  const [lobbyInitialMode, setLobbyInitialMode] = useState<'create' | 'join' | 'waiting' | 'options'>('create');
 
   // Hook central de Matchmaking Multijogo Simultâneo
   const multiMatchmaking = useMultiMatchmaking((matchId) => {
@@ -487,6 +489,7 @@ function MainApp() {
                 setIsSelectGameRoomOpen(true);
               }
             }}
+            onOpenJoinByCode={() => setIsJoinByCodeOpen(true)}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onOpenProfile={() => setIsProfileOpen(true)}
             onOpenFriends={() => setIsFriendsOpen(true)}
@@ -526,6 +529,19 @@ function MainApp() {
         }}
       />
 
+      {/* Modal Centralizado de Entrada por Código de Sala */}
+      <JoinRoomByCodeModal
+        isOpen={isJoinByCodeOpen}
+        onClose={() => setIsJoinByCodeOpen(false)}
+        onJoinSuccess={(room) => {
+          setIsJoinByCodeOpen(false);
+          setSelectedLobbyGameId(room.game_id);
+          setInitialRoomCode(room.code);
+          setLobbyInitialMode('waiting');
+          setIsLobbyOpen(true);
+        }}
+      />
+
       {/* Modal de Salas & Lobby para Partidas Privadas */}
       <RoomLobbyModal
         isOpen={isLobbyOpen}
@@ -535,7 +551,7 @@ function MainApp() {
         onClose={() => {
           setIsLobbyOpen(false);
           setInitialRoomCode(null);
-          setLobbyInitialMode('options');
+          setLobbyInitialMode('create');
           refreshActiveRoom();
         }}
         onMatchStarted={handleStartMatch}

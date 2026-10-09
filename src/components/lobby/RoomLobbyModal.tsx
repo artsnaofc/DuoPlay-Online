@@ -39,7 +39,7 @@ import {
 } from '@/services/rooms';
 import { useAuth } from '@/hooks/useAuth';
 import { InviteFriendsToRoomModal } from '@/components/social/InviteFriendsToRoomModal';
-import { getGameDefinition } from '@/multiplayer/registry/index';
+import { getGameDefinition, isSameGame } from '@/multiplayer/registry/index';
 
 interface RoomLobbyModalProps {
   isOpen: boolean;
@@ -53,7 +53,7 @@ interface RoomLobbyModalProps {
 export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   isOpen,
   initialCode,
-  initialMode = 'options',
+  initialMode = 'create',
   defaultGameId = 'tic_tac_toe',
   onClose,
   onMatchStarted,
@@ -61,8 +61,8 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   const { user } = useAuth();
   const currentUserId = user?.id || null;
 
-  const [mode, setMode] = useState<'options' | 'join' | 'waiting'>(
-    initialMode === 'create' || initialMode === 'waiting' ? 'waiting' : initialMode
+  const [mode, setMode] = useState<'join' | 'waiting'>(
+    initialMode === 'join' ? 'join' : 'waiting'
   );
   const [joinCode, setJoinCode] = useState(initialCode || '');
   const [currentRoom, setCurrentRoom] = useState<RoomWithMembers | null>(null);
@@ -75,6 +75,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   const pollingRef = useRef<number | null>(null);
   const lastLoadedCodeRef = useRef<string | null>(null);
   const autoCreateTriggeredRef = useRef<boolean>(false);
+  const isCreatingRef = useRef<boolean>(false);
 
   // Deriva o jogo atual do lobby
   const gameDef = useMemo(() => {
@@ -85,12 +86,6 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
   const gameTitle = gameDef?.title || 'Jogo';
   const maxPlayers = gameDef?.maxPlayers || 2;
   const isHost = currentRoom?.host_id === currentUserId;
-
-  // Limpar erro ao mudar de modo
-  const changeMode = (newMode: 'options' | 'join' | 'waiting') => {
-    setErrorMessage(null);
-    setMode(newMode);
-  };
 
   // Carrega ou recarrega os detalhes da sala de forma idempotente (sem criar nova sala)
   const loadRoom = useCallback(async (roomId: string) => {
@@ -111,6 +106,56 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
       return false;
     }
   }, []);
+
+  // 1. Ação: Criar Sala de Forma Instantânea e Autoritativa
+  const handleCreateRoom = useCallback(async () => {
+    if (isCreatingRef.current) return;
+    isCreatingRef.current = true;
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const targetGameDef = getGameDefinition(defaultGameId);
+      const targetGameTitle = targetGameDef?.title || 'Jogo';
+      const result = await createRoom(defaultGameId, `${targetGameTitle} Multiplayer`);
+
+      if (result.success && result.data?.room?.id) {
+        const roomId = result.data.room.id;
+        setPendingRoomId(roomId);
+
+        // Se for Carta Duo, salva as regras padrão na criação da sala
+        if (isSameGame(defaultGameId, 'carta_duo')) {
+          try {
+            await updateRoomConfig(roomId, {
+              initial_cards: 7,
+              cumulative_draw: true,
+              force_draw: true,
+              play_immediately: true,
+              turn_timer: 30,
+            });
+          } catch {
+            // Silencia falhas transitórias de configuração inicial
+          }
+        }
+
+        const loaded = await loadRoom(roomId);
+        if (!loaded) {
+          setMode('waiting');
+        }
+      } else {
+        setIsLoading(false);
+        setErrorMessage(result.error || 'Não foi possível criar a sala. Tente novamente.');
+        setMode('waiting');
+      }
+    } catch (err: unknown) {
+      setIsLoading(false);
+      const msg = err instanceof Error ? err.message : 'Erro inesperado ao criar sala.';
+      setErrorMessage(msg);
+      setMode('waiting');
+    } finally {
+      isCreatingRef.current = false;
+    }
+  }, [defaultGameId, loadRoom]);
 
   // Auto-Entrada / Carregamento Direto ao abrir com código inicial (ex: "Voltar para a Sala")
   const handleAutoJoin = useCallback(async (codeToJoin: string) => {
@@ -137,30 +182,52 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     }
   }, [currentRoom, loadRoom]);
 
-  // Se receber código inicial via prop, carrega e abre a sala de espera diretamente
+  // Sincronização e ciclo de vida ao abrir o modal
   useEffect(() => {
     if (!isOpen) {
       lastLoadedCodeRef.current = null;
+      autoCreateTriggeredRef.current = false;
+      isCreatingRef.current = false;
       return;
     }
 
+    setErrorMessage(null);
+
+    // Se receber código inicial via prop (ex: convite ou entrar com código)
     if (initialCode && initialCode.trim()) {
       const cleanCode = initialCode.trim().toUpperCase();
-      if (lastLoadedCodeRef.current !== cleanCode) {
+      if (lastLoadedCodeRef.current !== cleanCode || !currentRoom) {
         lastLoadedCodeRef.current = cleanCode;
         setJoinCode(cleanCode);
         handleAutoJoin(cleanCode);
       }
-    } else {
-      if (currentRoom && currentRoom.game_id !== defaultGameId) {
-        setCurrentRoom(null);
-        setPendingRoomId(null);
-        setMode('options');
-      } else if (mode === 'waiting' && !currentRoom) {
-        setMode('options');
-      }
+      return;
     }
-  }, [isOpen, initialCode, defaultGameId, handleAutoJoin, mode, currentRoom]);
+
+    // Se foi aberto explicitamente em modo de inserção de código
+    if (initialMode === 'join') {
+      setMode('join');
+      setIsLoading(false);
+      return;
+    }
+
+    // Modo de criação instantânea (padronizado para todos os jogos):
+    // Se a sala atual já existente pertence ao mesmo jogo, preserva a sala
+    if (currentRoom && isSameGame(currentRoom.game_id, defaultGameId)) {
+      setMode('waiting');
+      return;
+    }
+
+    // Caso contrário (novo jogo ou primeira abertura), limpa a sala anterior e cria imediatamente
+    setCurrentRoom(null);
+    setPendingRoomId(null);
+    setMode('waiting');
+
+    if (!autoCreateTriggeredRef.current && !isCreatingRef.current) {
+      autoCreateTriggeredRef.current = true;
+      handleCreateRoom();
+    }
+  }, [isOpen, initialCode, initialMode, defaultGameId, handleAutoJoin, handleCreateRoom, currentRoom]);
 
   // Polling para sincronização periódica da sala enquanto estiver em espera
   const refreshRoom = useCallback(async (roomId: string) => {
@@ -188,64 +255,6 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
       };
     }
   }, [mode, currentRoom?.id, refreshRoom]);
-
-  // 1. Ação: Criar Sala
-  const handleCreateRoom = useCallback(async () => {
-    if (isLoading) return;
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    const targetGameDef = getGameDefinition(defaultGameId);
-    const targetGameTitle = targetGameDef?.title || 'Jogo';
-    const result = await createRoom(defaultGameId, `${targetGameTitle} Multiplayer`);
-
-    if (result.success && result.data?.room?.id) {
-      const roomId = result.data.room.id;
-      setPendingRoomId(roomId);
-
-      // Se for Carta Duo, salva as regras padrão na criação da sala
-      if (defaultGameId === 'carta_duo' || defaultGameId === 'carta-duo') {
-        try {
-          await updateRoomConfig(roomId, {
-            initial_cards: 7,
-            cumulative_draw: true,
-            force_draw: true,
-            play_immediately: true,
-            turn_timer: 30,
-          });
-        } catch {
-          // Silencia falhas transitórias de configuração inicial
-        }
-      }
-
-      const loaded = await loadRoom(roomId);
-      if (!loaded) {
-        setMode('waiting');
-      }
-    } else {
-      setIsLoading(false);
-      setErrorMessage(result.error || 'Não foi possível criar a sala.');
-      setMode('options');
-    }
-  }, [isLoading, defaultGameId, loadRoom]);
-
-  // Se o modo inicial for 'create' e não houver código inicial, cria e abre imediatamente a sala
-  useEffect(() => {
-    if (!isOpen) {
-      autoCreateTriggeredRef.current = false;
-      return;
-    }
-
-    if (
-      initialMode === 'create' &&
-      !initialCode &&
-      !currentRoom &&
-      !autoCreateTriggeredRef.current
-    ) {
-      autoCreateTriggeredRef.current = true;
-      handleCreateRoom();
-    }
-  }, [isOpen, initialMode, initialCode, currentRoom, handleCreateRoom]);
 
   // 2. Ação: Entrar na Sala com código
   const handleJoinRoom = async (e: React.FormEvent) => {
@@ -314,7 +323,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
     setCurrentRoom(null);
     setPendingRoomId(null);
     setErrorMessage(null);
-    setMode('options');
+    setMode('waiting');
 
     if (targetRoomId) {
       try {
@@ -422,51 +431,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
           </div>
         )}
 
-        {/* 1. MODO: Options (Criar ou Entrar) */}
-        {mode === 'options' && !isLoading && (
-          <div className="space-y-4">
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Jogue {gameTitle} em tempo real com amigos. Crie uma nova sala para gerar um código ou entre em uma sala compartilhada por outro jogador.
-            </p>
-
-            <div className="grid grid-cols-1 gap-3 pt-2">
-              <button
-                onClick={handleCreateRoom}
-                disabled={isLoading}
-                className="w-full flex items-center justify-between p-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-md shadow-blue-900/30 transition-all active:scale-[0.98] disabled:opacity-50"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-blue-700/60 flex items-center justify-center">
-                    <Plus className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="text-left">
-                    <div className="leading-tight">Criar Nova Sala</div>
-                    <div className="text-[11px] text-blue-200 font-normal">Gera o código privado de {gameTitle}</div>
-                  </div>
-                </div>
-                {isLoading && <RotateCw className="w-4 h-4 animate-spin text-white" />}
-              </button>
-
-              <button
-                onClick={() => changeMode('join')}
-                disabled={isLoading}
-                className="w-full flex items-center justify-between p-4 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-700/80 text-slate-200 font-bold text-sm transition-all active:scale-[0.98]"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center text-slate-300">
-                    <LogIn className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <div className="leading-tight">Entrar com Código</div>
-                    <div className="text-[11px] text-slate-400 font-normal">Insira o código de 6 caracteres do amigo</div>
-                  </div>
-                </div>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 2. MODO: Join (Inserir Código) */}
+        {/* 1. MODO: Join (Inserir Código) */}
         {mode === 'join' && (
           <form onSubmit={handleJoinRoom} className="space-y-4">
             <div>
@@ -488,7 +453,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => changeMode('options')}
+                onClick={onClose}
                 className="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-semibold text-xs transition-colors"
               >
                 Voltar
@@ -847,8 +812,14 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => pendingRoomId && loadRoom(pendingRoomId)}
-                    disabled={!pendingRoomId}
+                    onClick={() => {
+                      if (pendingRoomId) {
+                        loadRoom(pendingRoomId);
+                      } else {
+                        handleCreateRoom();
+                      }
+                    }}
+                    disabled={isLoading}
                     className="w-2/3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
                   >
                     <RotateCw className="w-3.5 h-3.5" />

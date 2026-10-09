@@ -246,6 +246,24 @@ const REGISTRY: Record<string, GameDefinition> = {
 };
 
 /**
+ * Normaliza identificadores de jogos da plataforma, convertendo hífens para underscores
+ * e letras para minúsculas (ex: 'tic-tac-toe' -> 'tic_tac_toe').
+ */
+export function normalizeGameId(gameId?: string | null): string {
+  if (!gameId) return '';
+  return gameId.trim().replace(/-/g, '_').toLowerCase();
+}
+
+/**
+ * Compara se dois IDs de jogos referem-se ao mesmo título da plataforma,
+ * tolerando variações de hífens, underscores e casing.
+ */
+export function isSameGame(gameIdA?: string | null, gameIdB?: string | null): boolean {
+  if (!gameIdA || !gameIdB) return false;
+  return normalizeGameId(gameIdA) === normalizeGameId(gameIdB);
+}
+
+/**
  * Retorna a definição completa de um jogo cadastrado.
  */
 export function getGameDefinition(gameId: string): GameDefinition | null {
