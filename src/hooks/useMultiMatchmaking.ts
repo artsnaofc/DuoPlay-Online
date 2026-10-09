@@ -13,6 +13,7 @@ import {
   getMyActiveMatchmakingQueues,
   type MatchmakingQueueInfo,
 } from '@/services/matchmaking';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 
 export interface GameQueueState {
@@ -80,14 +81,13 @@ export function useMultiMatchmaking(
           }
         }
 
-        // Mapeia o estado retornado para as filas locais com mapeamento duplo (hífen e underscore)
+        // Mapeia o estado retornado para as filas locais com chaves normalizadas
         setQueues((prev) => {
           const updated: Record<string, GameQueueState> = {};
 
           // Preserva filas em estado 'joining' em voo que ainda não retornaram
           for (const [k, v] of Object.entries(prev)) {
             if (v.status === 'joining') {
-              updated[k] = v;
               updated[normalizeGameId(k)] = v;
             }
           }
@@ -96,8 +96,7 @@ export function useMultiMatchmaking(
           for (const item of activeList) {
             if (!item.game_id) continue;
             const normId = normalizeGameId(item.game_id);
-            const hyphenId = normId.replace(/_/g, '-');
-            const existing = prev[normId] || prev[hyphenId] || prev[item.game_id];
+            const existing = prev[normId];
             const state: GameQueueState = {
               gameId: normId,
               status: item.status === 'matched' ? 'matched' : 'waiting',
@@ -107,8 +106,6 @@ export function useMultiMatchmaking(
               error: null,
             };
             updated[normId] = state;
-            updated[hyphenId] = state;
-            updated[item.game_id] = state;
           }
 
           return updated;
@@ -130,13 +127,36 @@ export function useMultiMatchmaking(
     }
   }, [isAuthenticated, user, syncActiveQueues]);
 
-  // Contagem de filas ativas únicas (desduplicando aliases de id)
-  const uniqueActiveGameIds = new Set(
-    Object.values(queues)
-      .filter((q) => q.status === 'waiting' || q.status === 'joining')
-      .map((q) => normalizeGameId(q.gameId))
+  // Assinatura Realtime em tempo real na tabela matchmaking_queue (Fase 22.3)
+  useEffect(() => {
+    if (!isAuthenticated || !user || !isSupabaseConfigured) return;
+
+    const channel = supabase
+      .channel(`mm_presence_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'matchmaking_queue',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          syncActiveQueues();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAuthenticated, user, syncActiveQueues]);
+
+  // Contagem de filas ativas únicas
+  const activeQueuesList = Object.values(queues).filter(
+    (q) => q.status === 'waiting' || q.status === 'joining'
   );
-  const activeCount = uniqueActiveGameIds.size;
+  const activeCount = activeQueuesList.length;
   const isSearchingAny = activeCount > 0;
 
   useEffect(() => {
@@ -169,12 +189,13 @@ export function useMultiMatchmaking(
     async (gameIds: string[]) => {
       if (!isAuthenticated || gameIds.length === 0) return;
 
+      navigatedMatchIdRef.current = null;
+
       // Coloca os jogos selecionados em estado 'joining'
       setQueues((prev) => {
         const next = { ...prev };
         for (const gId of gameIds) {
           const normId = normalizeGameId(gId);
-          const hyphenId = normId.replace(/_/g, '-');
           const entry: GameQueueState = {
             gameId: normId,
             status: 'joining',
@@ -182,7 +203,6 @@ export function useMultiMatchmaking(
             error: null,
           };
           next[normId] = entry;
-          next[hyphenId] = entry;
         }
         return next;
       });
@@ -191,7 +211,6 @@ export function useMultiMatchmaking(
       await Promise.all(
         gameIds.map(async (gId) => {
           const normId = normalizeGameId(gId);
-          const hyphenId = normId.replace(/_/g, '-');
           try {
             const res = await joinMatchmakingQueue(normId);
             if (!isMountedRef.current) return;
@@ -218,7 +237,6 @@ export function useMultiMatchmaking(
                   return {
                     ...prev,
                     [normId]: state,
-                    [hyphenId]: state,
                   };
                 });
               }
@@ -232,7 +250,6 @@ export function useMultiMatchmaking(
                 return {
                   ...prev,
                   [normId]: state,
-                  [hyphenId]: state,
                 };
               });
             }
@@ -247,7 +264,6 @@ export function useMultiMatchmaking(
               return {
                 ...prev,
                 [normId]: state,
-                [hyphenId]: state,
               };
             });
           }
@@ -260,13 +276,11 @@ export function useMultiMatchmaking(
   // Cancelar a busca de um jogo individual
   const cancelGameSearch = useCallback(async (gameId: string) => {
     const normId = normalizeGameId(gameId);
-    const hyphenId = normId.replace(/_/g, '-');
 
     // Atualiza imediatamente a UI
     setQueues((prev) => {
       const next = { ...prev };
       delete next[normId];
-      delete next[hyphenId];
       delete next[gameId];
       return next;
     });
@@ -288,6 +302,7 @@ export function useMultiMatchmaking(
 
   // Cancelar todas as buscas ativas
   const cancelAllSearches = useCallback(async () => {
+    navigatedMatchIdRef.current = null;
     setQueues({});
     try {
       const res = await cancelMatchmakingQueue();

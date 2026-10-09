@@ -77,10 +77,12 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
 
   if (!isOpen) return null;
 
-  const activeQueuesList = Object.values(queues).filter(
-    (q) => q.status === 'waiting' || q.status === 'joining'
+  const uniqueActiveQueues = Object.values(queues).filter(
+    (q, idx, arr) =>
+      (q.status === 'waiting' || q.status === 'joining') &&
+      arr.findIndex((other) => normalizeId(other.gameId) === normalizeId(q.gameId)) === idx
   );
-  const isSearching = activeQueuesList.length > 0;
+  const isSearching = uniqueActiveQueues.length > 0;
 
   // Erros ativos reportados nas filas
   const errorQueues = Object.values(queues).filter((q) => q.status === 'error' && q.error);
@@ -136,7 +138,7 @@ export const MultiMatchmakingModal: React.FC<MultiMatchmakingModalProps> = ({
               </h2>
               <p className="text-xs text-slate-400">
                 {isSearching
-                  ? `Buscando em ${activeQueuesList.length} ${activeQueuesList.length === 1 ? 'jogo' : 'jogos'} simultaneamente...`
+                  ? `Buscando em ${uniqueActiveQueues.length} ${uniqueActiveQueues.length === 1 ? 'jogo' : 'jogos'} simultaneamente...`
                   : 'Escolha os jogos que você quer procurar.'}
               </p>
             </div>
