@@ -1,24 +1,26 @@
 // ============================================================================
 // Component: TicTacToeBoard — DuoPlay-Online
-// Phase: Fase 7 — Integração End-to-End do Jogo da Velha
-// Description: Tabuleiro 3x3 puramente visual e responsivo.
-//              O estado exibido é 100% derivado do snapshot autoritativo.
+// Phase: Configuração de Grid do Jogo da Velha & Regras Personalizadas
+// Description: Tabuleiro responsivo e dinâmico com suporte a grids 3x3, 4x4 e 5x5,
+//              linhas vencedoras proporcionais e adaptação mobile/desktop.
 // ============================================================================
 
 import React from 'react';
-import type { TicTacToeBoard as BoardArray, TicTacToeCell } from './types';
+import type { TicTacToeCell } from './types';
 
 interface TicTacToeBoardProps {
-  board: BoardArray | (string | null)[];
+  board: (string | null)[];
+  gridSize?: number;
   isMyTurn: boolean;
   disabled?: boolean;
   submittingPosition: number | null;
-  winningLine?: [number, number, number] | number[] | null;
+  winningLine?: number[] | null;
   onCellClick: (position: number) => void;
 }
 
 export const TicTacToeBoard: React.FC<TicTacToeBoardProps> = ({
   board,
+  gridSize = 3,
   isMyTurn,
   disabled = false,
   submittingPosition,
@@ -31,12 +33,22 @@ export const TicTacToeBoard: React.FC<TicTacToeBoardProps> = ({
   };
 
   const renderMark = (cell: TicTacToeCell | string | null, isWin: boolean) => {
+    // Escala dos ícones conforme o tamanho da grade
+    const iconSizeClass =
+      gridSize === 5
+        ? 'w-7 h-7 sm:w-9 sm:h-9 stroke-[3.5]'
+        : gridSize === 4
+        ? 'w-8 h-8 sm:w-11 sm:h-11 stroke-[4]'
+        : 'w-10 h-10 sm:w-14 sm:h-14 stroke-[4]';
+
     if (cell === 'X') {
       return (
         <svg
           viewBox="0 0 40 40"
-          className={`w-10 h-10 sm:w-14 sm:h-14 stroke-current stroke-[4] stroke-linecap-round ${
-            isWin ? 'text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]' : 'text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.5)]'
+          className={`${iconSizeClass} stroke-current stroke-linecap-round ${
+            isWin
+              ? 'text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]'
+              : 'text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.5)]'
           }`}
           fill="none"
           aria-hidden="true"
@@ -51,8 +63,10 @@ export const TicTacToeBoard: React.FC<TicTacToeBoardProps> = ({
       return (
         <svg
           viewBox="0 0 40 40"
-          className={`w-10 h-10 sm:w-14 sm:h-14 stroke-current stroke-[4] ${
-            isWin ? 'text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]' : 'text-purple-400 drop-shadow-[0_0_8px_rgba(192,132,252,0.5)]'
+          className={`${iconSizeClass} stroke-current ${
+            isWin
+              ? 'text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]'
+              : 'text-purple-400 drop-shadow-[0_0_8px_rgba(192,132,252,0.5)]'
           }`}
           fill="none"
           aria-hidden="true"
@@ -65,11 +79,27 @@ export const TicTacToeBoard: React.FC<TicTacToeBoardProps> = ({
     return null;
   };
 
+  const totalCells = gridSize * gridSize;
+
+  // Grid styling por tamanho
+  const gridColsClass =
+    gridSize === 5
+      ? 'grid-cols-5 grid-rows-5 gap-1.5 sm:gap-2'
+      : gridSize === 4
+      ? 'grid-cols-4 grid-rows-4 gap-2 sm:gap-2.5'
+      : 'grid-cols-3 grid-rows-3 gap-2.5';
+
+  const cellMinHeightClass =
+    gridSize === 5
+      ? 'min-h-[46px] sm:min-h-[64px]'
+      : gridSize === 4
+      ? 'min-h-[58px] sm:min-h-[76px]'
+      : 'min-h-[72px] sm:min-h-[96px]';
+
   return (
-    <div className="relative w-full max-w-[340px] sm:max-w-[400px] aspect-square mx-auto p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-sm">
-      {/* 3x3 Grid container */}
-      <div className="grid grid-cols-3 grid-rows-3 gap-2.5 h-full w-full">
-        {Array.from({ length: 9 }).map((_, idx) => {
+    <div className="relative w-full max-w-[360px] sm:max-w-[440px] aspect-square mx-auto p-3 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-sm select-none">
+      <div className={`grid ${gridColsClass} h-full w-full`}>
+        {Array.from({ length: totalCells }).map((_, idx) => {
           const cell = (board && board[idx]) ?? null;
           const isOccupied = cell !== null;
           const isPendingSubmission = submittingPosition === idx;
@@ -89,7 +119,7 @@ export const TicTacToeBoard: React.FC<TicTacToeBoardProps> = ({
               aria-label={`Casa ${idx + 1}: ${cell ? cell : 'vazia'}`}
               className={`
                 relative flex items-center justify-center rounded-xl font-bold transition-all duration-200 select-none
-                min-h-[72px] sm:min-h-[96px]
+                ${cellMinHeightClass}
                 ${
                   isWinning
                     ? 'bg-emerald-950/60 border-2 border-emerald-400/90 shadow-[0_0_15px_rgba(16,185,129,0.35)] scale-[1.02]'

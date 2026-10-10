@@ -118,8 +118,8 @@ export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({
   }, [state.status, state.snakes, tickRateMs, prefersReducedMotion]);
 
   return (
-    <div className="w-full flex items-center justify-center p-2 select-none">
-      <div className="relative w-full max-w-[420px] aspect-square rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 shadow-2xl shadow-emerald-950/20">
+    <div className="w-full flex items-center justify-center p-1 sm:p-2 select-none">
+      <div className="relative w-full max-w-[540px] aspect-square rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 shadow-2xl shadow-emerald-950/20">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-full block"

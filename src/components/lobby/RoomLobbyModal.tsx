@@ -138,6 +138,19 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
           }
         }
 
+        // Se for Jogo da Velha, salva as configurações padrão de grid e timer
+        if (isSameGame(defaultGameId, 'tic_tac_toe') || isSameGame(defaultGameId, 'tic-tac-toe')) {
+          try {
+            await updateRoomConfig(roomId, {
+              grid_size: 3,
+              win_streak: 3,
+              turn_timer: 30,
+            });
+          } catch {
+            // Silencia falhas transitórias de configuração inicial
+          }
+        }
+
         const loaded = await loadRoom(roomId);
         if (!loaded) {
           setMode('waiting');
@@ -700,6 +713,91 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
                           </select>
                         ) : (
                           <span className="font-extrabold text-white">{(currentRoom.config as any)?.turn_timer ?? 30} segundos</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* SEÇÃO DE CONFIGURAÇÕES DE REGRAS EXCLUSIVAS (JOGO DA VELHA) */}
+                {(currentRoom.game_id === 'tic_tac_toe' || currentRoom.game_id === 'tic-tac-toe') && (
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-850/80 space-y-3">
+                    <h3 className="text-xs font-black uppercase text-blue-400 tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Configurações do Jogo da Velha</span>
+                    </h3>
+
+                    <div className="grid grid-cols-1 gap-3 text-xs text-slate-300">
+                      {/* 1. Tamanho do Grid */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Tamanho da Grade:</span>
+                        {isHost ? (
+                          <select
+                            id="rule-grid-size"
+                            value={(currentRoom.config as any)?.grid_size ?? 3}
+                            onChange={(e) => {
+                              const newSize = Number(e.target.value);
+                              const defaultStreak = newSize === 5 ? 4 : newSize;
+                              handleUpdateRule('grid_size', newSize);
+                              handleUpdateRule('win_streak', defaultStreak);
+                            }}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold text-white"
+                          >
+                            <option value={3}>3x3 (Clássico)</option>
+                            <option value={4}>4x4 (Expandido)</option>
+                            <option value={5}>5x5 (Grande / Tático)</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">
+                            {(currentRoom.config as any)?.grid_size ?? 3}x{(currentRoom.config as any)?.grid_size ?? 3}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 2. Condição de Vitória (Sequência em Linha) */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Sequência para Vencer:</span>
+                        {isHost ? (
+                          <select
+                            id="rule-win-streak"
+                            value={(currentRoom.config as any)?.win_streak ?? 3}
+                            onChange={(e) => handleUpdateRule('win_streak', Number(e.target.value))}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold text-white"
+                          >
+                            <option value={3}>3 em linha</option>
+                            {Number((currentRoom.config as any)?.grid_size ?? 3) >= 4 && (
+                              <option value={4}>4 em linha</option>
+                            )}
+                            {Number((currentRoom.config as any)?.grid_size ?? 3) >= 5 && (
+                              <option value={5}>5 em linha (Gomoku)</option>
+                            )}
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">
+                            {(currentRoom.config as any)?.win_streak ?? 3} em linha
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 3. Tempo do Turno */}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-400">Tempo por Jogada:</span>
+                        {isHost ? (
+                          <select
+                            id="rule-ttt-turn-timer"
+                            value={(currentRoom.config as any)?.turn_timer ?? 30}
+                            onChange={(e) => handleUpdateRule('turn_timer', Number(e.target.value))}
+                            className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold text-white"
+                          >
+                            <option value={10}>10s (Rápido / Blitz)</option>
+                            <option value={15}>15s (Dinâmico)</option>
+                            <option value={30}>30s (Padrão)</option>
+                            <option value={45}>45s (Estratégico)</option>
+                          </select>
+                        ) : (
+                          <span className="font-extrabold text-white">
+                            {(currentRoom.config as any)?.turn_timer ?? 30}s
+                          </span>
                         )}
                       </div>
                     </div>

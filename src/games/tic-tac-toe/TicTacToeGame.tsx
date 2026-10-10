@@ -31,6 +31,7 @@ import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile';
 import { ConnectionStatusIndicator } from '@/components/match/ConnectionStatusIndicator';
 import { TurnTimer } from '@/components/match/TurnTimer';
+import { checkWinner } from './ticTacToeEngine';
 
 interface TicTacToeGameProps {
   matchId: string;
@@ -39,23 +40,6 @@ interface TicTacToeGameProps {
   onPlayAgain?: () => void;
   onStartRematch?: (newMatchId: string) => void;
   onViewPlayerProfile?: (userId: string) => void;
-}
-
-// 8 combinações clássicas de vitória para derivação visual caso o servidor não envie explicitamente
-const WINNING_COMBINATIONS = [
-  [0, 1, 2], [3, 4, 5], [6, 7, 8], // Linhas
-  [0, 3, 6], [1, 4, 7], [2, 5, 8], // Colunas
-  [0, 4, 8], [2, 4, 6],             // Diagonais
-];
-
-function deriveWinningLine(board: (string | null)[]): [number, number, number] | null {
-  for (const combo of WINNING_COMBINATIONS) {
-    const [a, b, c] = combo;
-    if (board[a] && board[a] === board[b] && board[b] === board[c]) {
-      return [a, b, c];
-    }
-  }
-  return null;
 }
 
 export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
@@ -98,13 +82,42 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     return opponentPlayer.slot === 1 ? 'X' : opponentPlayer.slot === 2 ? 'O' : null;
   }, [opponentPlayer]);
 
-  // 2. Tabuleiro e Estado do Jogo Derivados do Snapshot
+  // 2. Tabuleiro e Configuração de Grid Derivados do Snapshot
+  const gridSize = useMemo<number>(() => {
+    const rawState = snapshot?.state as any;
+    if (rawState?.config?.grid_size && typeof rawState.config.grid_size === 'number') {
+      return rawState.config.grid_size;
+    }
+    const rawMatchConfig = (snapshot as any)?.config;
+    if (rawMatchConfig?.grid_size && typeof rawMatchConfig.grid_size === 'number') {
+      return rawMatchConfig.grid_size;
+    }
+    if (rawState?.board && Array.isArray(rawState.board)) {
+      if (rawState.board.length === 25) return 5;
+      if (rawState.board.length === 16) return 4;
+    }
+    return 3;
+  }, [snapshot]);
+
+  const winStreak = useMemo<number>(() => {
+    const rawState = snapshot?.state as any;
+    if (rawState?.config?.win_streak && typeof rawState.config.win_streak === 'number') {
+      return rawState.config.win_streak;
+    }
+    const rawMatchConfig = (snapshot as any)?.config;
+    if (rawMatchConfig?.win_streak && typeof rawMatchConfig.win_streak === 'number') {
+      return rawMatchConfig.win_streak;
+    }
+    return gridSize === 5 ? 4 : gridSize;
+  }, [snapshot, gridSize]);
+
   const board = useMemo<(string | null)[]>(() => {
+    const total = gridSize * gridSize;
     if (snapshot?.state?.board && Array.isArray(snapshot.state.board)) {
       return snapshot.state.board;
     }
-    return [null, null, null, null, null, null, null, null, null];
-  }, [snapshot]);
+    return Array.from({ length: total }, () => null);
+  }, [snapshot, gridSize]);
 
   // Presence & Grace Period do Adversário
   const [graceSecondsLeft, setGraceSecondsLeft] = useState<number | null>(null);
@@ -173,16 +186,17 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     return () => clearInterval(interval);
   }, [isOpponentDisconnected, opponentPlayer?.gracePeriodExpiresAt, isFinished]);
 
-  // 3. Linha Vencedora para Destaque Visual
-  const winningLine = useMemo(() => {
+  // 3. Linha Vencedora para Destaque Visual com Suporte a Multi-Grid
+  const winningLine = useMemo<number[] | null>(() => {
     if (snapshot?.state?.winning_line) {
       return snapshot.state.winning_line;
     }
     if (isFinished && snapshot?.winnerId) {
-      return deriveWinningLine(board);
+      const { winningLine: derived } = checkWinner(board, gridSize, winStreak);
+      return derived;
     }
     return null;
-  }, [snapshot, isFinished, board]);
+  }, [snapshot, isFinished, board, gridSize, winStreak]);
 
   // 4. Jogador do Turno Atual
   const currentTurnPlayer = useMemo(() => {
@@ -557,7 +571,8 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       {/* Game Board */}
       <div className="py-2">
         <TicTacToeBoard
-          board={board as BoardArray}
+          board={board}
+          gridSize={gridSize}
           isMyTurn={isMyTurn}
           disabled={isFinished || !isMyTurn}
           submittingPosition={submittingPosition}

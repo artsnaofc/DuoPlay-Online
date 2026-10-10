@@ -461,7 +461,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   const isFinished = snapshot?.status === 'finished' || gameState?.status === 'finished';
 
   return (
-    <div className="flex flex-col min-h-[85vh] w-full max-w-lg mx-auto px-3 py-2 select-none">
+    <div className="flex flex-col min-h-[85vh] w-full max-w-xl mx-auto px-3 py-2 select-none">
       {/* 1. Header do Jogo */}
       <header className="flex items-center justify-between pb-2 border-b border-slate-800/80">
         <button
