@@ -59,6 +59,16 @@ export const Footer: React.FC = () => {
             <span>Jogos Multiplayer Web</span>
             <span aria-hidden="true">·</span>
             <span>Mobile & Desktop</span>
+            <span aria-hidden="true">·</span>
+            <a
+              href="/version.json"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-600 hover:text-slate-400 font-mono transition-colors"
+              title="Informações de versão e build"
+            >
+              v1.0.0
+            </a>
           </div>
         </div>
       </div>

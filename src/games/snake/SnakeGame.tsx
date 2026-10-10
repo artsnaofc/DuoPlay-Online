@@ -30,6 +30,7 @@ import type { SnakeGameState, SnakeDirection } from './types';
 import { SnakeArenaView } from './SnakeArenaView';
 import { SnakeMobileControls } from './SnakeMobileControls';
 import { setSnakeDirection, OPPOSITE_DIRECTIONS, createInitialSnakeState } from './snakeEngine';
+import { telemetry } from '@/services/multiplayerTelemetry';
 
 interface SnakeGameProps {
   matchId: string;
@@ -76,6 +77,31 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   const pendingDirectionRef = useRef<SnakeDirection | null>(null);
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSubmittedTickRef = useRef<number>(0);
+  const inFlightTickRef = useRef<boolean>(false);
+  const lastReceivedTickTimeRef = useRef<number>(Date.now());
+  const isTabVisibleRef = useRef<boolean>(
+    typeof document !== 'undefined' ? document.visibilityState === 'visible' : true
+  );
+
+  // Inicialização de telemetria e monitoramento de visibilidade da aba
+  useEffect(() => {
+    telemetry.reset(matchId);
+    const handleVisibilityChange = () => {
+      isTabVisibleRef.current = document.visibilityState === 'visible';
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [matchId]);
+
+  // Atualizar timestamp de recepção de tick e registrar evento Realtime
+  useEffect(() => {
+    if (snapshot?.state?.tick !== undefined) {
+      lastReceivedTickTimeRef.current = Date.now();
+      telemetry.recordRealtimeUpdate();
+    }
+  }, [snapshot?.state?.tick]);
 
   // 2. Extrair e Normalizar Estado Oficial da Partida
   const gameState: SnakeGameState | null = useMemo(() => {
@@ -153,11 +179,14 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
       pendingDirectionRef.current = requestedDir;
       setPredictedDirection(requestedDir);
 
+      const rpcStart = Date.now();
       try {
         const res = await submitAction('snake_set_direction', {
           direction: requestedDir,
           tick: gameState.tick,
         });
+
+        telemetry.recordRpc('snake_set_direction', Date.now() - rpcStart, res.accepted);
 
         if (!res.accepted) {
           pendingDirectionRef.current = null;
@@ -167,6 +196,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
           }
         }
       } catch {
+        telemetry.recordRpc('snake_set_direction', Date.now() - rpcStart, false);
         pendingDirectionRef.current = null;
         setPredictedDirection(null);
       }
@@ -246,23 +276,50 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
       return () => clearInterval(interval);
     }
 
-    // Partida in_game: Qualquer jogador elegível pode coordenar os ticks (removida dependência exclusiva do Host)
+    // Partida in_game: Coordenador cooperativo de ticks (Host primário + Fallback resiliente)
     if (gameState.status === 'in_game') {
       const tickRate = gameState.config.tickRateMs || 150;
+      const staleGraceMs = Math.round(tickRate * 2.5); // ~375ms sem avanço ativa o fallback
 
       if (!tickIntervalRef.current) {
         tickIntervalRef.current = setInterval(async () => {
+          // Se a aba estiver oculta/segundo plano, pausa coordenação de ticks
+          if (!isTabVisibleRef.current) return;
+
+          // Se já há um tick em voo, aguarda resolução para não encadear chamadas HTTP
+          if (inFlightTickRef.current) return;
+
+          const now = Date.now();
+          const isStale = now - lastReceivedTickTimeRef.current >= staleGraceMs;
+
+          // Regra Cooperativa:
+          // O Host é o coordenador primário. O Não-Host monitora e só assume se o Host estiver estagnado
+          if (!isHost && !isStale) {
+            telemetry.setDriverRole('idle');
+            return;
+          }
+
+          telemetry.setDriverRole(isHost ? 'primary' : 'fallback');
+
           const nextTick = (gameState.tick || 0) + 1;
           if (nextTick <= lastSubmittedTickRef.current) return;
 
           lastSubmittedTickRef.current = nextTick;
+          inFlightTickRef.current = true;
+
+          const rpcStart = Date.now();
           try {
-            await submitAction('snake_tick', {
+            const res = await submitAction('snake_tick', {
               tick: nextTick,
-              clientTime: Date.now(),
+              clientTime: rpcStart,
             });
+            const rpcDuration = Date.now() - rpcStart;
+            const isIdempotent = Boolean(res.isIdempotent);
+            telemetry.recordRpc('snake_tick', rpcDuration, res.accepted, isIdempotent);
           } catch {
-            // Continua no próximo tick
+            telemetry.recordRpc('snake_tick', Date.now() - rpcStart, false, false);
+          } finally {
+            inFlightTickRef.current = false;
           }
         }, tickRate);
       }

@@ -3,10 +3,17 @@ import react from '@vitejs/plugin-react';
 import {fileURLToPath, URL} from 'node:url';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+import {writeVersionFile} from './scripts/generate-version.ts';
 
 export default defineConfig(() => {
   return {
     plugins: [
+      {
+        name: 'generate-version-json',
+        buildStart() {
+          writeVersionFile();
+        },
+      },
       react(),
       tailwindcss(),
       VitePWA({
