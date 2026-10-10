@@ -32,6 +32,7 @@ import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile
 import { ConnectionStatusIndicator } from '@/components/match/ConnectionStatusIndicator';
 import { TurnTimer } from '@/components/match/TurnTimer';
 import { checkWinner } from './ticTacToeEngine';
+import { soundService } from '@/services/soundEffects';
 
 interface TicTacToeGameProps {
   matchId: string;
@@ -69,7 +70,9 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
 
   const [submittingPosition, setSubmittingPosition] = useState<number | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
-  const [isResultModalOpen, setIsResultModalOpen] = useState(true);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+  const [showCinematicResult, setShowCinematicResult] = useState(false);
+  const [cinematicFinished, setCinematicFinished] = useState(false);
 
   // 1. Determinação de Símbolos baseada estritamente no slot autoritativo (Slot 1 = X, Slot 2 = O)
   const mySymbol = useMemo<'X' | 'O' | null>(() => {
@@ -144,10 +147,25 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   }, [isFinished, matchId, refresh]);
 
   useEffect(() => {
-    if (isFinished) {
-      setIsResultModalOpen(true);
+    if (isFinished && !cinematicFinished) {
+      setShowCinematicResult(true);
+      if (snapshot?.winnerId === currentUserId) {
+        soundService.play('win');
+      } else if (snapshot?.winnerId !== null) {
+        soundService.play('lose');
+      } else {
+        soundService.play('draw');
+      }
+
+      const timer = setTimeout(() => {
+        setShowCinematicResult(false);
+        setCinematicFinished(true);
+        setIsResultModalOpen(true);
+      }, 3000);
+
+      return () => clearTimeout(timer);
     }
-  }, [isFinished]);
+  }, [isFinished, cinematicFinished, snapshot?.winnerId, currentUserId]);
 
   // Carrega perfil público do adversário para identificação visual e estatísticas
   useEffect(() => {
@@ -217,6 +235,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       setSubmittingPosition(position);
 
       try {
+        soundService.play('place');
         const result = await submitAction('place_mark', { position });
 
         if (!result.accepted && result.error) {
@@ -325,7 +344,39 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   }
 
   return (
-    <div className="max-w-xl mx-auto px-4 py-6 sm:py-10 space-y-6">
+    <div className="max-w-xl mx-auto px-4 py-6 sm:py-10 space-y-6 relative">
+      {/* Cinematic Victory/Defeat Animation Overlay */}
+      {showCinematicResult && (
+        <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-300">
+          <div className="text-center space-y-4">
+            {snapshot?.winnerId === currentUserId ? (
+              <>
+                <div className="text-7xl animate-bounce">🏆</div>
+                <h2 className="text-4xl font-black text-amber-400 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">
+                  Vitória Épica!
+                </h2>
+                <p className="text-slate-200 text-sm font-medium">Analisando o placar oficial...</p>
+              </>
+            ) : snapshot?.winnerId !== null ? (
+              <>
+                <div className="text-7xl animate-pulse">💀</div>
+                <h2 className="text-4xl font-black text-rose-500 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(244,63,94,0.6)]">
+                  Derrota
+                </h2>
+                <p className="text-slate-200 text-sm font-medium">Boa tentativa! O oponente venceu esta.</p>
+              </>
+            ) : (
+              <>
+                <div className="text-7xl animate-pulse">🤝</div>
+                <h2 className="text-4xl font-black text-blue-400 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(96,165,250,0.6)]">
+                  Empate
+                </h2>
+                <p className="text-slate-200 text-sm font-medium">Nenhum vencedor nesta rodada.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* Top Header & Status Bar */}
       <div className="flex items-center justify-between pb-4 border-b border-slate-800">
         <div className="flex items-center gap-2">

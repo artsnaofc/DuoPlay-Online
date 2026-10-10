@@ -31,6 +31,7 @@ import { SnakeArenaView } from './SnakeArenaView';
 import { SnakeMobileControls } from './SnakeMobileControls';
 import { setSnakeDirection, OPPOSITE_DIRECTIONS, createInitialSnakeState } from './snakeEngine';
 import { telemetry } from '@/services/multiplayerTelemetry';
+import { soundService } from '@/services/soundEffects';
 
 interface SnakeGameProps {
   matchId: string;
@@ -72,6 +73,9 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [predictedDirection, setPredictedDirection] = useState<SnakeDirection | null>(null);
   const [displayCount, setDisplayCount] = useState<number>(3);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+  const [showCinematicResult, setShowCinematicResult] = useState(false);
+  const [cinematicFinished, setCinematicFinished] = useState(false);
 
   // Buffer de direção pendente e fila de comandos no cliente para resposta instantânea
   const pendingDirectionRef = useRef<SnakeDirection | null>(null);
@@ -119,6 +123,30 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
     }
     return raw as SnakeGameState;
   }, [snapshot]);
+
+  const status = snapshot?.status || gameState?.status || 'in_progress';
+  const isFinished = status === 'finished' || status === 'abandoned' || status === 'cancelled';
+  const isWinner = isFinished && snapshot?.winnerId === currentUserId;
+
+  useEffect(() => {
+    if (isFinished && !cinematicFinished) {
+      setShowCinematicResult(true);
+      if (isWinner) {
+        soundService.play('win');
+      } else {
+        soundService.play('crash');
+        soundService.play('lose');
+      }
+
+      const timer = setTimeout(() => {
+        setShowCinematicResult(false);
+        setCinematicFinished(true);
+        setIsResultModalOpen(true);
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isFinished, cinematicFinished, isWinner, currentUserId]);
 
   // Manter gameStateRef sincronizado para acesso em callbacks sem forçar recriação de timers
   useEffect(() => {
@@ -458,10 +486,40 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
     );
   }
 
-  const isFinished = snapshot?.status === 'finished' || gameState?.status === 'finished';
-
   return (
-    <div className="flex flex-col min-h-[85vh] w-full max-w-xl mx-auto px-3 py-2 select-none">
+    <div className="flex flex-col min-h-[85vh] w-full max-w-xl mx-auto px-3 py-2 select-none relative">
+      {/* Cinematic Victory/Defeat Animation Overlay */}
+      {showCinematicResult && (
+        <div className="absolute inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-300">
+          <div className="text-center space-y-4">
+            {isWinner ? (
+              <>
+                <div className="text-7xl animate-bounce">🏆</div>
+                <h2 className="text-4xl font-black text-amber-400 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">
+                  Vitória Incontestável!
+                </h2>
+                <p className="text-slate-200 text-sm font-medium">O adversário colidiu primeiro.</p>
+              </>
+            ) : snapshot?.winnerId !== null ? (
+              <>
+                <div className="text-7xl animate-pulse">💥</div>
+                <h2 className="text-4xl font-black text-rose-500 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(244,63,94,0.6)]">
+                  Colisão Fatal — Derrota
+                </h2>
+                <p className="text-slate-200 text-sm font-medium">Sua cobra bateu! Analisando replay...</p>
+              </>
+            ) : (
+              <>
+                <div className="text-7xl animate-pulse">🤝</div>
+                <h2 className="text-4xl font-black text-blue-400 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(96,165,250,0.6)]">
+                  Empate Simultâneo
+                </h2>
+                <p className="text-slate-200 text-sm font-medium">Ambas as cobras colidiram ao mesmo tempo!</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* 1. Header do Jogo */}
       <header className="flex items-center justify-between pb-2 border-b border-slate-800/80">
         <button
@@ -612,7 +670,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
 
       {isFinished && snapshot && (
         <MatchResultModal
-          isOpen={true}
+          isOpen={isResultModalOpen}
           matchId={matchId}
           gameName="Cobrinha Competitiva"
           status={snapshot.status}
