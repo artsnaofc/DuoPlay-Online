@@ -146,11 +146,13 @@ export function useGameSession<TState = unknown>(
 
   const isMyTurn = useMemo(() => {
     if (!snapshot || !currentUserId) return false;
-    return (
-      snapshot.status === 'in_progress' &&
-      snapshot.currentTurnPlayerId === currentUserId
-    );
-  }, [snapshot, currentUserId]);
+    if (snapshot.status !== 'in_progress') return false;
+    if (snapshot.currentTurnPlayerId) {
+      return snapshot.currentTurnPlayerId === currentUserId;
+    }
+    // Fallback robusto se currentTurnPlayerId for nulo no início da partida: Slot 1 joga primeiro
+    return myPlayer?.slot === 1;
+  }, [snapshot, currentUserId, myPlayer?.slot]);
 
   const isLoading = syncState === 'syncing' && snapshot === null;
 

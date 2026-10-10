@@ -76,6 +76,19 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [showCinematicResult, setShowCinematicResult] = useState(false);
   const [cinematicFinished, setCinematicFinished] = useState(false);
+  const [bgmPlaying, setBgmPlaying] = useState(false);
+
+  useEffect(() => {
+    soundService.startBgm();
+    setBgmPlaying(soundService.isBgmPlaying());
+    return () => {
+      soundService.stopBgm();
+    };
+  }, []);
+
+  const toggleBgm = () => {
+    setBgmPlaying(soundService.toggleBgm());
+  };
 
   // Buffer de direção pendente e fila de comandos no cliente para resposta instantânea
   const pendingDirectionRef = useRef<SnakeDirection | null>(null);
@@ -193,6 +206,14 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
     if (!gameState || !currentUserId) return null;
     return gameState.snakes[currentUserId] || null;
   }, [gameState, currentUserId]);
+
+  const prevScoreRef = useRef<number>(0);
+  useEffect(() => {
+    if (mySnake && mySnake.score > prevScoreRef.current) {
+      soundService.play('eat');
+      prevScoreRef.current = mySnake.score;
+    }
+  }, [mySnake?.score]);
 
   const opponentSnake = useMemo(() => {
     if (!gameState || !opponentPlayer?.userId) return null;
@@ -543,6 +564,14 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
         </div>
 
         <div className="flex items-center gap-1">
+          <button
+            onClick={toggleBgm}
+            className="p-2 rounded-xl text-slate-400 hover:text-amber-300 hover:bg-slate-800/60 transition-all text-xs font-bold"
+            aria-label="Alternar Trilha Sonora"
+            title={bgmPlaying ? 'Desligar BGM' : 'Ligar BGM'}
+          >
+            {bgmPlaying ? '🎵' : '🔇'}
+          </button>
           <button
             onClick={() => setIsRulesModalOpen(true)}
             className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-all"

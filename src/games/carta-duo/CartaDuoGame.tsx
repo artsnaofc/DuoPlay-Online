@@ -163,8 +163,21 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [showCinematicResult, setShowCinematicResult] = useState(false);
   const [cinematicFinished, setCinematicFinished] = useState(false);
+  const [bgmPlaying, setBgmPlaying] = useState(false);
   const [isAbandonModalOpen, setIsAbandonModalOpen] = useState(false);
   const [isAbandoning, setIsAbandoning] = useState(false);
+
+  useEffect(() => {
+    soundService.startBgm();
+    setBgmPlaying(soundService.isBgmPlaying());
+    return () => {
+      soundService.stopBgm();
+    };
+  }, []);
+
+  const toggleBgm = () => {
+    setBgmPlaying(soundService.toggleBgm());
+  };
 
   // Seleção de cor para cartas Wild
   const [wildSelectCard, setWildSelectCard] = useState<string | null>(null);
@@ -703,6 +716,15 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
             aria-label="Controle de Som"
           >
             {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
+          </button>
+
+          <button
+            onClick={toggleBgm}
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-750 text-slate-300 transition-colors text-xs font-bold"
+            title={bgmPlaying ? 'Desligar Trilha Sonora' : 'Ligar Trilha Sonora'}
+            aria-label="Controle de Trilha Sonora"
+          >
+            {bgmPlaying ? '🎵' : '🔇'}
           </button>
 
           <button

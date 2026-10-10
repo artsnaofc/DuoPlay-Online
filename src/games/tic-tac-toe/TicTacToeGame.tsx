@@ -73,6 +73,19 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [showCinematicResult, setShowCinematicResult] = useState(false);
   const [cinematicFinished, setCinematicFinished] = useState(false);
+  const [bgmPlaying, setBgmPlaying] = useState(false);
+
+  useEffect(() => {
+    soundService.startBgm();
+    setBgmPlaying(soundService.isBgmPlaying());
+    return () => {
+      soundService.stopBgm();
+    };
+  }, []);
+
+  const toggleBgm = () => {
+    setBgmPlaying(soundService.toggleBgm());
+  };
 
   // 1. Determinação de Símbolos baseada estritamente no slot autoritativo (Slot 1 = X, Slot 2 = O)
   const mySymbol = useMemo<'X' | 'O' | null>(() => {
@@ -402,6 +415,13 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
 
         {/* Sync / Connectivity status */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleBgm}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-all"
+            title={bgmPlaying ? 'Desligar Trilha Sonora' : 'Ligar Trilha Sonora'}
+          >
+            {bgmPlaying ? '🎵' : '🔇'}
+          </button>
           <ConnectionStatusIndicator
             syncState={syncState}
             onReconnect={() => reconnect()}

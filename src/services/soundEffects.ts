@@ -143,6 +143,60 @@ class SoundEffectsService {
       // Ignora erros de áudio se navegador bloquear
     }
   }
+
+  private bgmInterval: ReturnType<typeof setInterval> | null = null;
+  private bgmPlaying: boolean = false;
+
+  public startBgm() {
+    if (this.bgmPlaying || this.muted) return;
+    this.bgmPlaying = true;
+
+    const playArpeggioLoop = () => {
+      const ctx = this.getContext();
+      if (!ctx || !this.bgmPlaying) return;
+      try {
+        const melody = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63];
+        melody.forEach((freq, idx) => {
+          const t = ctx.currentTime + idx * 0.28;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0.03, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+          osc.start(t);
+          osc.stop(t + 0.22);
+        });
+      } catch {}
+    };
+
+    playArpeggioLoop();
+    this.bgmInterval = setInterval(playArpeggioLoop, 3200);
+  }
+
+  public stopBgm() {
+    this.bgmPlaying = false;
+    if (this.bgmInterval) {
+      clearInterval(this.bgmInterval);
+      this.bgmInterval = null;
+    }
+  }
+
+  public toggleBgm(): boolean {
+    if (this.bgmPlaying) {
+      this.stopBgm();
+      return false;
+    } else {
+      this.startBgm();
+      return true;
+    }
+  }
+
+  public isBgmPlaying(): boolean {
+    return this.bgmPlaying;
+  }
 }
 
 export const soundService = new SoundEffectsService();
