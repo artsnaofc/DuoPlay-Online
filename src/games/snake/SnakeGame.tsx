@@ -222,24 +222,26 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
       return;
     }
 
-    // Se estiver em countdown, aguarda transição para in_game
+    // Se estiver em countdown, calcula tempo restante com base no startTime compartilhado
     if (gameState.status === 'countdown') {
-      if (isHost) {
-        const timeout = setTimeout(async () => {
-          try {
-            await submitAction('snake_start', {});
-          } catch {
-            // Silencioso
-          }
-        }, (gameState.config.countdownSeconds || 3) * 1000);
+      const startTime = gameState.startTime || Date.now();
+      const countdownMs = (gameState.config.countdownSeconds || 3) * 1000;
+      const targetTime = startTime + countdownMs;
+      const remainingMs = Math.max(0, targetTime - Date.now());
 
-        return () => clearTimeout(timeout);
-      }
-      return;
+      const timeout = setTimeout(async () => {
+        try {
+          await submitAction('snake_start', {});
+        } catch {
+          // Silencioso
+        }
+      }, remainingMs);
+
+      return () => clearTimeout(timeout);
     }
 
-    // Partida in_game: Host coordena o envio de ticks
-    if (isHost && gameState.status === 'in_game') {
+    // Partida in_game: Qualquer jogador elegível pode coordenar os ticks (removida dependência exclusiva do Host)
+    if (gameState.status === 'in_game') {
       const tickRate = gameState.config.tickRateMs || 150;
 
       if (!tickIntervalRef.current) {
