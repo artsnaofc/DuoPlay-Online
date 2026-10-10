@@ -12,12 +12,14 @@ interface SnakeArenaViewProps {
   state: SnakeGameState;
   myUserId: string | null;
   predictedDirection?: SnakeDirection | null;
+  displayCount?: number;
 }
 
 export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({
   state,
   myUserId,
   predictedDirection,
+  displayCount = 3,
 }) => {
   const { gridWidth, gridHeight } = state.config;
   const cellSize = 20; // Unidade lógica SVG
@@ -157,16 +159,19 @@ export const SnakeArenaView: React.FC<SnakeArenaViewProps> = ({
           })}
         </svg>
 
-        {/* Overlay de Countdown inicial */}
+        {/* Overlay de Countdown inicial com contagem visual */}
         {state.status === 'countdown' && (
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center pointer-events-none animate-fadeIn">
+          <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none animate-fadeIn z-20">
             <span className="text-xs uppercase tracking-widest text-emerald-400 font-bold mb-1">
               Arena Pronta
             </span>
-            <div className="text-4xl font-extrabold text-white tracking-wider animate-bounce">
+            <div className="text-6xl sm:text-7xl font-black text-white tracking-wider animate-bounce my-2">
+              {displayCount > 0 ? displayCount : 'JÁ!'}
+            </div>
+            <div className="text-sm font-extrabold text-amber-300 tracking-wide">
               PREPARE-SE
             </div>
-            <p className="text-[11px] text-slate-400 mt-2">Use o D-pad ou setas para controlar</p>
+            <p className="text-[11px] text-slate-400 mt-3">Use o D-pad ou setas para controlar</p>
           </div>
         )}
 

@@ -70,6 +70,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   const [actionErrorMsg, setActionErrorMsg] = useState<string | null>(null);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [predictedDirection, setPredictedDirection] = useState<SnakeDirection | null>(null);
+  const [displayCount, setDisplayCount] = useState<number>(3);
 
   // Buffer de direção pendente no cliente para prevenir múltiplos inputs no mesmo tick
   const pendingDirectionRef = useRef<SnakeDirection | null>(null);
@@ -222,22 +223,27 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
       return;
     }
 
-    // Se estiver em countdown, calcula tempo restante com base no startTime compartilhado
+    // Se estiver em countdown, calcula tempo restante e atualiza displayCount com proteção contra clock-skew
     if (gameState.status === 'countdown') {
+      const countdownSecs = gameState.config.countdownSeconds || 3;
       const startTime = gameState.startTime || Date.now();
-      const countdownMs = (gameState.config.countdownSeconds || 3) * 1000;
-      const targetTime = startTime + countdownMs;
-      const remainingMs = Math.max(0, targetTime - Date.now());
+      const referenceStart = Math.abs(Date.now() - startTime) > 15000 ? Date.now() : startTime;
 
-      const timeout = setTimeout(async () => {
-        try {
-          await submitAction('snake_start', {});
-        } catch {
-          // Silencioso
+      const updateCountdown = () => {
+        const elapsed = (Date.now() - referenceStart) / 1000;
+        const left = Math.ceil(countdownSecs - elapsed);
+        if (left > 0) {
+          setDisplayCount(left);
+        } else {
+          setDisplayCount(0);
+          submitAction('snake_start', {}).catch(() => {});
         }
-      }, remainingMs);
+      };
 
-      return () => clearTimeout(timeout);
+      updateCountdown();
+      const interval = setInterval(updateCountdown, 100);
+
+      return () => clearInterval(interval);
     }
 
     // Partida in_game: Qualquer jogador elegível pode coordenar os ticks (removida dependência exclusiva do Host)
@@ -486,6 +492,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
             state={gameState}
             myUserId={currentUserId}
             predictedDirection={predictedDirection}
+            displayCount={displayCount}
           />
         )}
       </main>
