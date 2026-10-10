@@ -73,12 +73,15 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
   const [predictedDirection, setPredictedDirection] = useState<SnakeDirection | null>(null);
   const [displayCount, setDisplayCount] = useState<number>(3);
 
-  // Buffer de direção pendente no cliente para prevenir múltiplos inputs no mesmo tick
+  // Buffer de direção pendente e fila de comandos no cliente para resposta instantânea
   const pendingDirectionRef = useRef<SnakeDirection | null>(null);
+  const inputQueueRef = useRef<SnakeDirection[]>([]);
+  const isDispatchingDirectionRef = useRef<boolean>(false);
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSubmittedTickRef = useRef<number>(0);
   const inFlightTickRef = useRef<boolean>(false);
   const lastReceivedTickTimeRef = useRef<number>(Date.now());
+  const gameStateRef = useRef<SnakeGameState | null>(null);
   const isTabVisibleRef = useRef<boolean>(
     typeof document !== 'undefined' ? document.visibilityState === 'visible' : true
   );
@@ -116,6 +119,11 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
     }
     return raw as SnakeGameState;
   }, [snapshot]);
+
+  // Manter gameStateRef sincronizado para acesso em callbacks sem forçar recriação de timers
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
 
   // Jogadores da Partida
   const myPlayer = useMemo(() => {
@@ -163,45 +171,74 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
     return gameState.snakes[opponentPlayer.userId] || null;
   }, [gameState, opponentPlayer?.userId]);
 
-  // 3. Gerenciamento de Input de Direção (Teclado e Touch)
+  // Processador de fila de inputs de direção
+  const processNextQueuedDirection = useCallback(async () => {
+    if (isDispatchingDirectionRef.current || inputQueueRef.current.length === 0) {
+      return;
+    }
+
+    const nextDir = inputQueueRef.current.shift();
+    if (!nextDir || !currentUserId || !gameState) return;
+
+    isDispatchingDirectionRef.current = true;
+    const rpcStart = Date.now();
+    try {
+      const res = await submitAction('snake_set_direction', {
+        direction: nextDir,
+        tick: gameState.tick,
+      });
+
+      telemetry.recordRpc('snake_set_direction', Date.now() - rpcStart, res.accepted);
+
+      if (!res.accepted) {
+        if (res.error?.message) {
+          setActionErrorMsg(res.error.message);
+        }
+      }
+    } catch {
+      telemetry.recordRpc('snake_set_direction', Date.now() - rpcStart, false);
+    } finally {
+      isDispatchingDirectionRef.current = false;
+      // Se ainda houver inputs enfileirados, processa o próximo
+      if (inputQueueRef.current.length > 0) {
+        processNextQueuedDirection();
+      }
+    }
+  }, [currentUserId, gameState, submitAction]);
+
+  // 3. Gerenciamento de Input de Direção (Teclado e Touch) com Resposta Instantânea
   const handleDirectionInput = useCallback(
-    async (requestedDir: SnakeDirection) => {
+    (requestedDir: SnakeDirection) => {
       if (!currentUserId || !gameState || gameState.status === 'finished' || !mySnake?.alive) {
         return;
       }
 
-      const currentDir = pendingDirectionRef.current || mySnake.direction;
-      if (OPPOSITE_DIRECTIONS[currentDir] === requestedDir || currentDir === requestedDir) {
+      // Direção atual contra a qual avaliar inversão de 180°:
+      // Se houver comando enfileirado, a referência é o último enfileirado; senão, a pendente ou oficial
+      const lastPlannedDir =
+        inputQueueRef.current.length > 0
+          ? inputQueueRef.current[inputQueueRef.current.length - 1]
+          : pendingDirectionRef.current || mySnake.direction;
+
+      if (OPPOSITE_DIRECTIONS[lastPlannedDir] === requestedDir || lastPlannedDir === requestedDir) {
         return; // Proibido inversão direta ou repetição desnecessária
       }
 
-      // Feedback visual e lógico imediato (Client-side prediction)
+      // 1. Feedback visual imediato no cliente (Zero Latency Perception)
       pendingDirectionRef.current = requestedDir;
       setPredictedDirection(requestedDir);
 
-      const rpcStart = Date.now();
-      try {
-        const res = await submitAction('snake_set_direction', {
-          direction: requestedDir,
-          tick: gameState.tick,
-        });
-
-        telemetry.recordRpc('snake_set_direction', Date.now() - rpcStart, res.accepted);
-
-        if (!res.accepted) {
-          pendingDirectionRef.current = null;
-          setPredictedDirection(null);
-          if (res.error?.message) {
-            setActionErrorMsg(res.error.message);
-          }
-        }
-      } catch {
-        telemetry.recordRpc('snake_set_direction', Date.now() - rpcStart, false);
-        pendingDirectionRef.current = null;
-        setPredictedDirection(null);
+      // 2. Enfileirar comando respeitando limite de buffer (máximo 2 inputs por tick)
+      if (inputQueueRef.current.length < 2) {
+        inputQueueRef.current.push(requestedDir);
+      } else {
+        inputQueueRef.current[1] = requestedDir;
       }
+
+      // 3. Disparar processamento assíncrono não-bloqueante
+      processNextQueuedDirection();
     },
-    [currentUserId, gameState, mySnake, submitAction]
+    [currentUserId, gameState, mySnake, processNextQueuedDirection]
   );
 
   // Escutar Teclado Desktop (WASD e Setas)
@@ -301,7 +338,9 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
 
           telemetry.setDriverRole(isHost ? 'primary' : 'fallback');
 
-          const nextTick = (gameState.tick || 0) + 1;
+          const currentS = gameStateRef.current;
+          const currentTickNumber = currentS?.tick || 0;
+          const nextTick = currentTickNumber + 1;
           if (nextTick <= lastSubmittedTickRef.current) return;
 
           lastSubmittedTickRef.current = nextTick;
@@ -331,7 +370,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
         tickIntervalRef.current = null;
       }
     };
-  }, [gameState?.status, gameState?.tick, gameState?.config, isHost, submitAction]);
+  }, [gameState?.status, gameState?.config?.tickRateMs, isHost, submitAction]);
 
   // Limpeza de Pending Direction quando o tick avança
   useEffect(() => {
