@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import type { GameInvite } from '@/types/invites';
+import { getMyNotifications, markNotificationRead } from '@/services/notifications';
 
 interface ReceivedGameInviteModalProps {
   invite: GameInvite | null;
@@ -148,6 +149,20 @@ export const ReceivedGameInviteModal: React.FC<ReceivedGameInviteModalProps> = (
     setErrorMessage(null);
     setIsAccepting(false);
     setIsDeclining(false);
+
+    // Marcar notificação correspondente como lida automaticamente ao apresentar o modal em primeiro plano visível
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      getMyNotifications(20).then((res) => {
+        if (res.success && res.data) {
+          const matching = res.data.find(
+            (n) => !n.read_at && (n.data?.room_id === invite.room_id || n.actor_id === invite.sender_id || n.data?.invite_id === invite.invite_id)
+          );
+          if (matching) {
+            markNotificationRead(matching.id).catch(() => {});
+          }
+        }
+      }).catch(() => {});
+    }
 
     const updateTimer = () => {
       const now = Date.now();

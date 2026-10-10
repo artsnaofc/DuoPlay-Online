@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { fetchUserProfile, signOutUser, safeRefreshSession } from '@/services/auth';
 import type { ProfileRow } from '@/types/database';
+import { ShieldAlert } from 'lucide-react';
 
 export interface AuthContextValue {
   user: User | null;
@@ -10,6 +11,8 @@ export interface AuthContextValue {
   session: Session | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  sessionReplacedMessage: string | null;
+  dismissSessionReplaced: () => void;
   refreshProfile: () => Promise<void>;
   refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -22,6 +25,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [sessionReplacedMessage, setSessionReplacedMessage] = useState<string | null>(null);
+
+  const userRef = useRef<User | null>(null);
+  userRef.current = user;
 
   const loadProfile = useCallback(async (userId: string) => {
     try {
@@ -33,23 +40,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    if (user) {
-      await loadProfile(user.id);
+    if (userRef.current) {
+      await loadProfile(userRef.current.id);
     }
-  }, [user, loadProfile]);
+  }, [loadProfile]);
+
+  const dismissSessionReplaced = useCallback(() => {
+    setSessionReplacedMessage(null);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
 
-    // Se Supabase não estiver configurado com credenciais válidas, encerra o loading graciosamente
     if (!isSupabaseConfigured) {
       setIsLoading(false);
       return;
     }
 
     let lastLoadedUserId: string | null = null;
+    let sessionToken = sessionStorage.getItem('duoplay_session_id');
+    if (!sessionToken) {
+      sessionToken = crypto.randomUUID();
+      sessionStorage.setItem('duoplay_session_id', sessionToken);
+    }
 
-    // Escutar mudanças de autenticação (no Supabase v2, dispara automaticamente o evento INITIAL_SESSION)
+    // Registrar sessão ativa e verificar periodicamente
+    const registerAndValidateSession = async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.rpc as any)('register_active_session', { p_session_id: sessionToken });
+      } catch {}
+    };
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
@@ -60,9 +82,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
 
       if (currentUser) {
-        // Evita chamadas redundantes se o mesmo usuário já teve seu perfil carregado
         if (currentUser.id !== lastLoadedUserId) {
           lastLoadedUserId = currentUser.id;
+          await registerAndValidateSession();
           await loadProfile(currentUser.id);
         }
       } else {
@@ -75,8 +97,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
+    // Intervalo de verificação de sessão única (a cada 15 segundos)
+    const intervalId = setInterval(async () => {
+      if (!isMounted || !userRef.current) return;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase.rpc as any)('validate_session', { p_session_id: sessionToken });
+        if (!error && data && data.valid === false && data.reason === 'SESSION_REPLACED') {
+          if (isMounted) {
+            setSessionReplacedMessage('Sua conta foi acessada em outro dispositivo ou navegador. Esta sessão foi encerrada.');
+            await supabase.auth.signOut({ scope: 'local' });
+            setUser(null);
+            setSession(null);
+            setProfile(null);
+          }
+        }
+      } catch {}
+    }, 15000);
+
     return () => {
       isMounted = false;
+      clearInterval(intervalId);
       subscription.unsubscribe();
     };
   }, [loadProfile]);
@@ -98,12 +139,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     session,
     isLoading,
     isAuthenticated: Boolean(user),
+    sessionReplacedMessage,
+    dismissSessionReplaced,
     refreshProfile,
     refreshSession,
     signOut,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {sessionReplacedMessage && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-red-500/50 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-7 h-7" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-lg font-black text-white">Sessão Encerrada</h3>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                {sessionReplacedMessage}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissSessionReplaced}
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg transition-all active:scale-95"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+    </AuthContext.Provider>
+  );
 };
 
 export function useAuth(): AuthContextValue {
@@ -113,3 +182,4 @@ export function useAuth(): AuthContextValue {
   }
   return context;
 }
+
