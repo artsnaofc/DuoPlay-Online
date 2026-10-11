@@ -230,6 +230,38 @@ export class GameSessionController<TState = unknown> {
   }
 
   /**
+   * Realiza sincronização silenciosa em segundo plano (usada no heartbeat)
+   * para atualizar o snapshot se houver divergência sem alterar syncState para 'syncing'.
+   */
+  async silentRefresh(): Promise<GameSnapshot<TState> | null> {
+    if (this.isDestroyed || !this.matchId) return null;
+
+    try {
+      const refreshed = await networkEngine.sync<TState>(this.matchId, this.snapshot);
+      if (this.isDestroyed) return null;
+
+      const currentVersion = this.snapshot?.version ?? 0;
+      const newVersion = refreshed?.version ?? 0;
+      const currentTurn = this.snapshot?.turnNumber ?? 0;
+      const newTurn = refreshed?.turnNumber ?? 0;
+      const currentStatus = this.snapshot?.status;
+      const newStatus = refreshed?.status;
+
+      if (
+        newVersion > currentVersion ||
+        newTurn > currentTurn ||
+        newStatus !== currentStatus ||
+        JSON.stringify(this.snapshot?.state) !== JSON.stringify(refreshed?.state)
+      ) {
+        this.updateState(refreshed, 'synced', null);
+      }
+      return refreshed;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Executa recuperação pós-reconexão com o PostgreSQL.
    */
   async reconnect(): Promise<GameSnapshot<TState> | null> {
@@ -313,6 +345,10 @@ export class GameSessionController<TState = unknown> {
             this.updateState(updatedSnapshot, this.syncState, this.error);
           }
         }
+
+        // Executa sync silencioso em segundo plano para garantir que jogadas do adversário
+        // sejam refletidas imediatamente mesmo se o Realtime WebSocket falhar ou atrasar.
+        await this.silentRefresh();
       }
     } catch {
       // Falhas transitórias no heartbeat não quebram a sessão
