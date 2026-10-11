@@ -247,6 +247,31 @@ class SoundManager {
   }
 
   /**
+   * Som de término de tempo de turno (timeout / bip descendente de alerta)
+   */
+  public playTurnTimeout(): void {
+    if (this.isSfxMuted) return;
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.exponentialRampToValueAtTime(150, now + 0.3);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } catch {}
+  }
+
+  /**
    * Cobrinha comeu maçã / comida (blip alegre clássico)
    */
   public playSnakeEatFood(): void {

@@ -134,17 +134,6 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
   const isLoser = isFinished && snapshot?.winnerId !== null && snapshot?.winnerId !== currentUserId;
   const isDraw = isFinished && Boolean(snapshot?.isDraw);
 
-  // Verificação periódica automática a cada 4 segundos da presença real do oponente no PostgreSQL
-  useEffect(() => {
-    if (isFinished || !matchId) return;
-
-    const presenceInterval = setInterval(() => {
-      refresh();
-    }, 4000);
-
-    return () => clearInterval(presenceInterval);
-  }, [isFinished, matchId, refresh]);
-
   useEffect(() => {
     if (isFinished) {
       setIsResultModalOpen(true);
@@ -554,6 +543,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
             isSuspended={isOpponentDisconnected}
             onVisualZero={() => {
               if (snapshot && snapshot.status === 'in_progress') {
+                soundManager.playTurnTimeout();
                 timeoutTurn(snapshot.turnNumber);
               }
             }}
