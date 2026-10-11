@@ -25,6 +25,9 @@ export const TurnTimer: React.FC<TurnTimerProps> = ({
   className = '',
 }) => {
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+  const onVisualZeroRef = React.useRef(onVisualZero);
+  onVisualZeroRef.current = onVisualZero;
+  const hasTriggeredZeroRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     if (!turnDeadline || isSuspended) {
@@ -38,8 +41,11 @@ export const TurnTimer: React.FC<TurnTimerProps> = ({
       const diffSec = Math.max(0, Math.ceil((deadlineMs - nowMs) / 1000));
       setSecondsRemaining(diffSec);
 
-      if (diffSec === 0 && onVisualZero) {
-        onVisualZero();
+      if (diffSec === 0 && hasTriggeredZeroRef.current !== turnDeadline) {
+        hasTriggeredZeroRef.current = turnDeadline;
+        if (onVisualZeroRef.current) {
+          onVisualZeroRef.current();
+        }
       }
     };
 
@@ -49,7 +55,7 @@ export const TurnTimer: React.FC<TurnTimerProps> = ({
     return () => {
       clearInterval(timerInterval);
     };
-  }, [turnDeadline, isSuspended, onVisualZero]);
+  }, [turnDeadline, isSuspended]);
 
   // Se o turno estiver suspenso por desconexão do adversário
   if (isSuspended) {

@@ -31,6 +31,7 @@ import { SnakeArenaView } from './SnakeArenaView';
 import { SnakeMobileControls } from './SnakeMobileControls';
 import { setSnakeDirection, OPPOSITE_DIRECTIONS, createInitialSnakeState } from './snakeEngine';
 import { telemetry } from '@/services/multiplayerTelemetry';
+import { soundManager } from '@/services/sound/soundManager';
 
 interface SnakeGameProps {
   matchId: string;
@@ -171,6 +172,24 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
     return gameState.snakes[opponentPlayer.userId] || null;
   }, [gameState, opponentPlayer?.userId]);
 
+  // Efeitos sonoros ao comer comida e ao colidir
+  const prevMyScoreRef = useRef<number>(0);
+  const prevMyAliveRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    if (!mySnake) return;
+
+    if (mySnake.score > prevMyScoreRef.current && prevMyScoreRef.current !== 0) {
+      soundManager.playSnakeEatFood();
+    }
+    prevMyScoreRef.current = mySnake.score;
+
+    if (prevMyAliveRef.current && !mySnake.alive) {
+      soundManager.playSnakeCrash();
+    }
+    prevMyAliveRef.current = mySnake.alive;
+  }, [mySnake?.score, mySnake?.alive]);
+
   // Processador de fila de inputs de direção
   const processNextQueuedDirection = useCallback(async () => {
     if (isDispatchingDirectionRef.current || inputQueueRef.current.length === 0) {
@@ -225,6 +244,7 @@ export const SnakeGame: React.FC<SnakeGameProps> = ({
       }
 
       // 1. Feedback visual imediato no cliente (Zero Latency Perception)
+      soundManager.playSnakeTurn();
       pendingDirectionRef.current = requestedDir;
       setPredictedDirection(requestedDir);
 

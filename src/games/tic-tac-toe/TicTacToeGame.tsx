@@ -32,6 +32,7 @@ import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile
 import { ConnectionStatusIndicator } from '@/components/match/ConnectionStatusIndicator';
 import { TurnTimer } from '@/components/match/TurnTimer';
 import { checkWinner } from './ticTacToeEngine';
+import { soundManager } from '@/services/sound/soundManager';
 
 interface TicTacToeGameProps {
   matchId: string;
@@ -65,6 +66,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
     submitAction,
     refresh,
     reconnect,
+    timeoutTurn,
   } = useGameSession<TicTacToeState>(matchId);
 
   const [submittingPosition, setSubmittingPosition] = useState<number | null>(null);
@@ -217,6 +219,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
       setSubmittingPosition(position);
 
       try {
+        soundManager.playTttPlaceMark(mySymbol || 'X');
         const result = await submitAction('place_mark', { position });
 
         if (!result.accepted && result.error) {
@@ -549,6 +552,11 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({
             turnDeadline={snapshot?.turnDeadline || null}
             isMyTurn={isMyTurn}
             isSuspended={isOpponentDisconnected}
+            onVisualZero={() => {
+              if (snapshot && snapshot.status === 'in_progress') {
+                timeoutTurn(snapshot.turnNumber);
+              }
+            }}
             className="shrink-0"
           />
         </div>

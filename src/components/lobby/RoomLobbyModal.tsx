@@ -363,9 +363,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
       ...currentConfig,
       [key]: value,
     };
-    setIsLoading(true);
     const result = await updateRoomConfig(currentRoom.id, newConfig);
-    setIsLoading(false);
     if (result.success) {
       await refreshRoom(currentRoom.id);
     } else {

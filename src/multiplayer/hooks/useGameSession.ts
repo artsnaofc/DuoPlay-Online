@@ -29,6 +29,7 @@ export interface UseGameSessionReturn<TState = unknown> {
   ) => Promise<ActionResult<TState>>;
   refresh: () => Promise<GameSnapshot<TState> | null>;
   reconnect: () => Promise<GameSnapshot<TState> | null>;
+  timeoutTurn: (turnNumber?: number) => Promise<boolean>;
 }
 
 /**
@@ -133,6 +134,11 @@ export function useGameSession<TState = unknown>(
     return controllerRef.current.reconnect();
   }, []);
 
+  const timeoutTurn = useCallback(async (turnNumber?: number): Promise<boolean> => {
+    if (!controllerRef.current) return false;
+    return controllerRef.current.timeoutTurn(turnNumber);
+  }, []);
+
   // Identificação do jogador atual e oponente
   const myPlayer = useMemo(() => {
     if (!snapshot || !currentUserId) return null;
@@ -165,5 +171,6 @@ export function useGameSession<TState = unknown>(
     submitAction,
     refresh,
     reconnect,
+    timeoutTurn,
   };
 }

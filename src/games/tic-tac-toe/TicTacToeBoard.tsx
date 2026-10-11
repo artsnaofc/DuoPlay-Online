@@ -45,7 +45,7 @@ export const TicTacToeBoard: React.FC<TicTacToeBoardProps> = ({
       return (
         <svg
           viewBox="0 0 40 40"
-          className={`${iconSizeClass} stroke-current stroke-linecap-round ${
+          className={`${iconSizeClass} stroke-current stroke-linecap-round animate-in zoom-in-50 duration-200 ${
             isWin
               ? 'text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]'
               : 'text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.5)]'
@@ -63,7 +63,7 @@ export const TicTacToeBoard: React.FC<TicTacToeBoardProps> = ({
       return (
         <svg
           viewBox="0 0 40 40"
-          className={`${iconSizeClass} stroke-current ${
+          className={`${iconSizeClass} stroke-current animate-in zoom-in-50 duration-200 ${
             isWin
               ? 'text-emerald-300 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]'
               : 'text-purple-400 drop-shadow-[0_0_8px_rgba(192,132,252,0.5)]'

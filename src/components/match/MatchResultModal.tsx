@@ -5,7 +5,7 @@
 //              autoritativos do PostgreSQL.
 // ============================================================================
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Trophy,
   ShieldAlert,
@@ -15,9 +15,11 @@ import {
   History,
   X,
   Sparkles,
+  Award,
 } from 'lucide-react';
 import type { MatchPlayerSnapshot } from '@/multiplayer/network/types';
 import { RematchControl } from './RematchControl';
+import { soundManager } from '@/services/sound/soundManager';
 
 export interface MatchResultPlayerInfo {
   userId?: string | null;
@@ -64,7 +66,33 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
   onViewUserProfile,
   showRematch = true,
 }) => {
-  if (!isOpen) return null;
+  // Atraso intencional suave de ~1.8s para que o jogador veja a jogada final e entenda o que aconteceu
+  const [isVisibleAfterDelay, setIsVisibleAfterDelay] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsVisibleAfterDelay(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setIsVisibleAfterDelay(true);
+
+      // Dispara fanfarra de vitória ou derrota após o delay
+      const isWin = Boolean(currentUserId && winnerId === currentUserId && !isDraw);
+      const isLoss = Boolean(currentUserId && winnerId && winnerId !== currentUserId && !isDraw);
+
+      if (isWin) {
+        soundManager.playVictoryFanfare();
+      } else if (isLoss) {
+        soundManager.playDefeatSound();
+      }
+    }, 1800);
+
+    return () => clearTimeout(timer);
+  }, [isOpen, currentUserId, winnerId, isDraw]);
+
+  if (!isOpen || !isVisibleAfterDelay) return null;
 
   const markAsSeen = () => {
     if (currentUserId && matchId && typeof window !== 'undefined') {
@@ -167,13 +195,13 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
       aria-labelledby="result-modal-title"
     >
       <div
-        className={`w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border p-5 sm:p-8 space-y-6 shadow-2xl transition-all ${
+        className={`w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border p-5 sm:p-8 space-y-6 shadow-2xl transition-all animate-in zoom-in-95 duration-300 ${
           theme === 'win'
-            ? 'bg-gradient-to-b from-emerald-950/80 via-slate-900 to-slate-950 border-emerald-500/50 ring-1 ring-emerald-500/20'
+            ? 'bg-gradient-to-b from-emerald-950/90 via-slate-900 to-slate-950 border-emerald-500/50 ring-2 ring-emerald-500/30 shadow-[0_0_50px_rgba(16,185,129,0.25)]'
             : theme === 'loss'
-            ? 'bg-gradient-to-b from-red-950/80 via-slate-900 to-slate-950 border-red-500/50 ring-1 ring-red-500/20'
+            ? 'bg-gradient-to-b from-red-950/90 via-slate-900 to-slate-950 border-red-500/50 ring-2 ring-red-500/30 shadow-[0_0_50px_rgba(239,68,68,0.2)]'
             : theme === 'draw'
-            ? 'bg-gradient-to-b from-amber-950/80 via-slate-900 to-slate-950 border-amber-500/50 ring-1 ring-amber-500/20'
+            ? 'bg-gradient-to-b from-amber-950/90 via-slate-900 to-slate-950 border-amber-500/50 ring-2 ring-amber-500/30 shadow-[0_0_50px_rgba(245,158,11,0.2)]'
             : 'bg-slate-900 border-slate-800'
         }`}
       >
@@ -193,23 +221,23 @@ export const MatchResultModal: React.FC<MatchResultModalProps> = ({
           </button>
         </div>
 
-        {/* Big Outcome Hero Icon */}
+        {/* Big Outcome Hero Icon with Pulse/Bounce Animation */}
         <div className="text-center space-y-3">
           <div
-            className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mx-auto ${
+            className={`inline-flex items-center justify-center w-20 h-20 rounded-2xl shadow-xl mx-auto transition-transform ${
               theme === 'win'
-                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/40 shadow-emerald-950/50'
+                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/50 shadow-emerald-950/60 animate-bounce'
                 : theme === 'loss'
-                ? 'bg-red-600/20 text-red-400 border border-red-500/40 shadow-red-950/50'
+                ? 'bg-red-600/20 text-red-400 border border-red-500/50 shadow-red-950/60 animate-pulse'
                 : theme === 'draw'
-                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/40 shadow-amber-950/50'
+                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/50 shadow-amber-950/60'
                 : 'bg-slate-800 text-slate-300 border border-slate-700'
             }`}
           >
-            {theme === 'win' && <Trophy className="w-8 h-8" />}
-            {theme === 'loss' && <ShieldAlert className="w-8 h-8" />}
-            {theme === 'draw' && <HelpCircle className="w-8 h-8" />}
-            {theme === 'neutral' && <Sparkles className="w-8 h-8" />}
+            {theme === 'win' && <Trophy className="w-10 h-10 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]" />}
+            {theme === 'loss' && <ShieldAlert className="w-10 h-10 drop-shadow-[0_0_12px_rgba(248,113,113,0.8)]" />}
+            {theme === 'draw' && <HelpCircle className="w-10 h-10 drop-shadow-[0_0_12px_rgba(251,191,36,0.8)]" />}
+            {theme === 'neutral' && <Sparkles className="w-10 h-10" />}
           </div>
 
           <div className="space-y-1">

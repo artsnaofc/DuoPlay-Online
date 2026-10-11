@@ -226,6 +226,13 @@ function MainApp() {
       url.searchParams.delete('match');
       window.history.replaceState({}, '', url.toString());
     }
+
+    // Se houver alguma sala de espera ativa, abre o modal da sala ao voltar para a home
+    if (activeRoom && activeRoom.status === 'waiting') {
+      setInitialRoomCode(activeRoom.code);
+      setLobbyInitialMode('waiting');
+      setIsLobbyOpen(true);
+    }
   };
 
   const handleDismissCompletedRecovery = () => {

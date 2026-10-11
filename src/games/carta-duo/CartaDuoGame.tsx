@@ -455,11 +455,14 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
 
     try {
       if (soundEnabled) playTone('timeout');
-      await timeoutMatchTurn(matchId, snapshot.turnNumber);
+      const res = await timeoutMatchTurn(matchId, snapshot.turnNumber);
+      if (res.success) {
+        await refresh();
+      }
     } catch {
       // Falha silenciosa caso o outro cliente ou servidor já tenha transicionado o turno
     }
-  }, [isFinished, snapshot, matchId, soundEnabled]);
+  }, [isFinished, snapshot, matchId, soundEnabled, refresh]);
 
   // Reivindicação por W.O.
   const handleClaimWO = async () => {

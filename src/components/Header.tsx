@@ -11,6 +11,7 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { UserMenu } from './auth/UserMenu';
 import { AuthModal } from './auth/AuthModal';
 import { NotificationCenter } from './notifications/NotificationCenter';
+import { AudioControls } from './common/AudioControls';
 import { useAuth } from '@/hooks/useAuth';
 import { useSocial } from '@/hooks/useSocial';
 import type { NotificationItem } from '@/types/notifications';
@@ -232,8 +233,9 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </nav>
 
-            {/* Zone 3: Header Right Actions (PWA Install + Auth + Notifications) */}
+            {/* Zone 3: Header Right Actions (PWA Install + Audio + Auth + Notifications) */}
             <div className="hidden sm:flex items-center gap-3">
+              <AudioControls />
               <PWAInstallButton />
 
               {!isLoading && (
@@ -319,6 +321,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
 
+              <AudioControls className="mr-1" />
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

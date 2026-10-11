@@ -11,7 +11,7 @@ import type {
 } from '../network/types';
 import type { NetworkError } from '../network/errors';
 import { networkEngine } from '../network/client';
-import { heartbeatMatch } from '@/services/matchSession';
+import { heartbeatMatch, timeoutMatchTurn } from '@/services/matchSession';
 
 export type SessionChangeListener<TState = unknown> = (
   snapshot: GameSnapshot<TState> | null,
@@ -239,6 +239,25 @@ export class GameSessionController<TState = unknown> {
       this.startHeartbeat();
     }
     return refreshed;
+  }
+
+  /**
+   * Comunica e avança autoritativamente o turno por timeout expirado no PostgreSQL.
+   */
+  async timeoutTurn(turnNumber?: number): Promise<boolean> {
+    if (this.isDestroyed || !this.matchId) return false;
+    const targetTurn = turnNumber ?? this.snapshot?.turnNumber ?? 1;
+
+    try {
+      const res = await timeoutMatchTurn(this.matchId, targetTurn);
+      if (res.success) {
+        await this.refresh();
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   /**
