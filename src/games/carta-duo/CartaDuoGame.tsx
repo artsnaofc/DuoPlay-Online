@@ -7,7 +7,7 @@
 //              sem botão de passar turno e transição autoritativa de Turn Timer.
 // ============================================================================
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   RefreshCw,
   AlertCircle,
@@ -207,12 +207,67 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
     return () => clearInterval(interval);
   }, [isFinished, matchId, refresh]);
 
-  // Reabre modal de resultado caso mude para finalizado
+  // Reabre modal de resultado com atraso de revelação da última carta vencedora
+  const [winningCardReveal, setWinningCardReveal] = useState<{ card: string; winnerId: string } | null>(null);
+  const [hasShownWinningReveal, setHasShownWinningReveal] = useState(false);
+  const [recentActionBanner, setRecentActionBanner] = useState<{ text: string } | null>(null);
+  const prevActionHistoryLenRef = useRef<number>(0);
+
   useEffect(() => {
-    if (isFinished) {
+    if (isFinished && snapshot?.winnerId && !hasShownWinningReveal) {
+      const lastCard = (state as any)?.top_card || (state as any)?.discard_pile?.[0] || null;
+      if (lastCard) {
+        setWinningCardReveal({ card: lastCard, winnerId: snapshot.winnerId });
+        setHasShownWinningReveal(true);
+        const timer = setTimeout(() => {
+          setWinningCardReveal(null);
+          setIsResultModalOpen(true);
+        }, 2800);
+        return () => clearTimeout(timer);
+      } else {
+        setIsResultModalOpen(true);
+      }
+    } else if (isFinished && !winningCardReveal) {
       setIsResultModalOpen(true);
     }
-  }, [isFinished]);
+  }, [isFinished, snapshot?.winnerId, state, hasShownWinningReveal, winningCardReveal]);
+
+  // Monitorar histórico de ações para animações flutuantes na mesa
+  useEffect(() => {
+    const history = snapshot?.actionHistory;
+    if (Array.isArray(history) && history.length > prevActionHistoryLenRef.current) {
+      const latestAction = history[history.length - 1];
+      if (latestAction && latestAction.action_type) {
+        const actorId = latestAction.player_id;
+        const actorProfile = actorId === currentUserId ? { displayName: 'Você' } : opponentsProfiles[actorId] || { displayName: 'Adversário' };
+        const actorName = actorProfile.displayName || 'Jogador';
+        
+        let actionDesc = '';
+        if (latestAction.action_type === 'play_card') {
+          const card = (latestAction.payload as { card?: string })?.card;
+          actionDesc = `${actorName} jogou ${card ? card.replace(':', ' ') : 'uma carta'}`;
+        } else if (latestAction.action_type === 'draw_card') {
+          actionDesc = `${actorName} comprou uma carta 🎴`;
+        } else if (latestAction.action_type === 'declare_last_card') {
+          actionDesc = `🃏 ${actorName} declarou DUO!`;
+        } else if (latestAction.action_type === 'challenge_last_card') {
+          actionDesc = `⚡ ${actorName} contestou com sucesso! (+2)`;
+        } else if (latestAction.action_type === 'accept_penalty') {
+          actionDesc = `🛡️ ${actorName} aceitou a penalidade de compra`;
+        }
+
+        if (actionDesc) {
+          setRecentActionBanner({ text: actionDesc });
+          const timer = setTimeout(() => {
+            setRecentActionBanner(null);
+          }, 2200);
+          prevActionHistoryLenRef.current = history.length;
+          return () => clearTimeout(timer);
+        }
+      }
+      prevActionHistoryLenRef.current = history.length;
+    }
+  }, [snapshot?.actionHistory, currentUserId, opponentsProfiles]);
 
   // Minha mão oficial de cartas
   const myHand = useMemo<string[]>(() => {
@@ -628,6 +683,31 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto px-2 sm:px-4 py-3 sm:py-6 space-y-4 select-none relative pb-10">
+      {/* BANNER DE REVELAÇÃO DA ÚLTIMA CARTA NA MESA */}
+      {winningCardReveal && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/90 via-yellow-950/80 to-amber-950/90 border-2 border-amber-400 text-white flex items-center justify-between gap-3 shadow-[0_0_30px_rgba(245,158,11,0.5)] animate-bounce">
+          <div className="flex items-center gap-3">
+            <Sparkles className="w-6 h-6 text-amber-300 animate-spin shrink-0" />
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-amber-200">
+                {winningCardReveal.winnerId === currentUserId ? '🎉 Você venceu a partida!' : '🏆 Última Carta Jogada! Definindo Campeão...'}
+              </h4>
+              <p className="text-[11px] text-amber-300/80">
+                A carta vencedora está brilhando na mesa oficial. O resultado oficial será exibido em instantes...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BANNER FLUTUANTE DE ANIMAÇÃO DE AÇÃO RECENTE */}
+      {recentActionBanner && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-40 px-4 py-2.5 rounded-2xl bg-blue-950/95 border border-blue-500/80 shadow-2xl text-blue-200 text-xs font-bold flex items-center gap-2 animate-in slide-in-from-top-5 fade-in duration-200 pointer-events-none">
+          <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
+          <span>{recentActionBanner.text}</span>
+        </div>
+      )}
+
       {/* 1. TOPO: HEADER STATUS & AÇÕES RÁPIDAS */}
       <header className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 backdrop-blur-md">
         <div className="flex items-center gap-2">
@@ -760,17 +840,25 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
               </div>
 
               <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-800/60">
-                <div className="flex items-center gap-1 font-mono font-bold text-white text-[11px]">
-                  <Layers className="w-3.5 h-3.5 text-blue-400" />
-                  <span>{oppCardCount}</span>
+                <div className="flex items-center gap-1.5 font-mono font-bold text-white">
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-950/90 border border-blue-500/40 text-blue-300 shadow-sm">
+                    <Layers className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                    <span className="font-black text-sm">{oppCardCount}</span>
+                    <span className="text-[10px] text-slate-400">cartas</span>
+                  </div>
+                  {oppCardCount <= 2 && (
+                    <span className="text-[9px] font-black text-amber-300 bg-amber-950/90 px-1.5 py-0.5 rounded-full border border-amber-600/60 animate-pulse">
+                      ⚠️ Quase DUO!
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1">
                   {/* Indicador e Contestação de Última Carta para Oponente com 1 carta */}
                   {oppCardCount === 1 && (
                     state?.last_card_declarations?.[opp.userId] ? (
-                      <span className="text-[9px] font-black text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-600/50">
-                        🃏 Última Carta
+                      <span className="text-[10px] font-black text-amber-300 bg-amber-950/90 px-2 py-0.5 rounded-lg border border-amber-500/70 shadow">
+                        🃏 DUO Declarado
                       </span>
                     ) : (
                       <button
@@ -780,10 +868,11 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
                           handleChallengeLastCard(opp.userId);
                         }}
                         disabled={submittingAction}
-                        className="text-[9px] font-black text-amber-300 bg-red-950/90 hover:bg-red-900 border border-red-600/70 px-1.5 py-0.5 rounded animate-pulse cursor-pointer shadow-sm active:scale-95"
+                        className="text-[10px] font-black text-white bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 border-2 border-red-400/80 px-2.5 py-1 rounded-xl animate-pulse cursor-pointer shadow-lg shadow-red-950/50 active:scale-95 flex items-center gap-1"
                         title="Contestar oponente que não declarou Última Carta (+2 penalidade)"
                       >
-                        Contestar (+2)
+                        <span>⚡</span>
+                        <span>CONTESTAR (+2)</span>
                       </button>
                     )
                   )}
@@ -982,6 +1071,8 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
                     getCardColorTheme(parsedTopCard.color).bg
                   } ${getCardColorTheme(parsedTopCard.color).border} ${
                     getCardColorTheme(parsedTopCard.color).glow
+                  } ${
+                    winningCardReveal ? 'ring-4 ring-amber-400 shadow-[0_0_60px_rgba(245,158,11,0.9)] scale-105 animate-pulse' : ''
                   }`}
                 >
                   <div className={`text-[10px] font-black uppercase tracking-wider text-left ${getCardColorTheme(parsedTopCard.color).textColor}`}>
@@ -1045,22 +1136,22 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Botão e Indicador de Última Carta */}
+              {/* Botão e Indicador de Última Carta (DUO) */}
               {myLastCardDeclared ? (
-                <span className="px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/50 text-amber-300 font-extrabold text-[11px] flex items-center gap-1.5 shadow-sm">
-                  <span>🃏</span>
-                  <span>Última Carta Declarada!</span>
+                <span className="px-3 py-1.5 rounded-2xl bg-amber-500/20 border-2 border-amber-500/80 text-amber-300 font-black text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.4)] animate-pulse">
+                  <span className="text-sm">🃏</span>
+                  <span>DUO Declarado!</span>
                 </span>
               ) : canDeclareLastCard ? (
                 <button
                   type="button"
                   onClick={handleDeclareLastCard}
                   disabled={submittingAction}
-                  className="py-1.5 px-3.5 rounded-xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs shadow-lg shadow-amber-950/50 transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50 animate-bounce cursor-pointer"
-                  title="Declarar Última Carta para evitar contestação e penalidade de +2"
+                  className="py-2.5 px-5 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-950/80 transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50 animate-bounce cursor-pointer border-2 border-yellow-200 ring-2 ring-amber-400/80"
+                  title="Declarar Última Carta (DUO!) para evitar contestação e penalidade de +2"
                 >
-                  <span>🃏</span>
-                  <span>Declarar Última Carta!</span>
+                  <span className="text-base">🃏</span>
+                  <span className="tracking-wider">DECLARAR DUO!</span>
                 </button>
               ) : null}
 
