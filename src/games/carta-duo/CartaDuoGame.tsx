@@ -37,7 +37,6 @@ import { PlayerAvatar } from '@/components/profile/PlayerAvatar';
 import { fetchPublicProfile, type PublicPlayerProfile } from '@/services/profile';
 import { ConnectionStatusIndicator } from '@/components/match/ConnectionStatusIndicator';
 import { TurnTimer } from '@/components/match/TurnTimer';
-import { soundService } from '@/services/soundEffects';
 
 interface CartaDuoGameProps {
   matchId: string;
@@ -160,24 +159,9 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
 
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [submittingAction, setSubmittingAction] = useState(false);
-  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
-  const [showCinematicResult, setShowCinematicResult] = useState(false);
-  const [cinematicFinished, setCinematicFinished] = useState(false);
-  const [bgmPlaying, setBgmPlaying] = useState(false);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(true);
   const [isAbandonModalOpen, setIsAbandonModalOpen] = useState(false);
   const [isAbandoning, setIsAbandoning] = useState(false);
-
-  useEffect(() => {
-    soundService.startBgm();
-    setBgmPlaying(soundService.isBgmPlaying());
-    return () => {
-      soundService.stopBgm();
-    };
-  }, []);
-
-  const toggleBgm = () => {
-    setBgmPlaying(soundService.toggleBgm());
-  };
 
   // Seleção de cor para cartas Wild
   const [wildSelectCard, setWildSelectCard] = useState<string | null>(null);
@@ -223,25 +207,12 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
     return () => clearInterval(interval);
   }, [isFinished, matchId, refresh]);
 
-  // Cinematic pause e som ao finalizar partida
+  // Reabre modal de resultado caso mude para finalizado
   useEffect(() => {
-    if (isFinished && !cinematicFinished) {
-      setShowCinematicResult(true);
-      if (snapshot?.winnerId === currentUserId) {
-        soundService.play('win');
-      } else {
-        soundService.play('lose');
-      }
-
-      const timer = setTimeout(() => {
-        setShowCinematicResult(false);
-        setCinematicFinished(true);
-        setIsResultModalOpen(true);
-      }, 3000);
-
-      return () => clearTimeout(timer);
+    if (isFinished) {
+      setIsResultModalOpen(true);
     }
-  }, [isFinished, cinematicFinished, snapshot?.winnerId, currentUserId]);
+  }, [isFinished]);
 
   // Minha mão oficial de cartas
   const myHand = useMemo<string[]>(() => {
@@ -654,38 +625,6 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto px-2 sm:px-4 py-3 sm:py-6 space-y-4 select-none relative pb-10">
-      {/* Cinematic Victory/Defeat Animation Overlay */}
-      {showCinematicResult && (
-        <div className="absolute inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 rounded-2xl animate-in fade-in zoom-in-95 duration-300">
-          <div className="text-center space-y-4">
-            {snapshot?.winnerId === currentUserId ? (
-              <>
-                <div className="text-7xl animate-bounce">🏆</div>
-                <h2 className="text-4xl font-black text-amber-400 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">
-                  Última Carta Jogada — Vitória!
-                </h2>
-                <p className="text-slate-200 text-sm font-medium">Você esvaziou sua mão primeiro e venceu o duelo!</p>
-              </>
-            ) : snapshot?.winnerId !== null ? (
-              <>
-                <div className="text-7xl animate-pulse">🃏</div>
-                <h2 className="text-4xl font-black text-rose-500 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(244,63,94,0.6)]">
-                  Derrota — Oponente Bateu
-                </h2>
-                <p className="text-slate-200 text-sm font-medium">O oponente jogou a última carta da mão e venceu!</p>
-              </>
-            ) : (
-              <>
-                <div className="text-7xl animate-pulse">🤝</div>
-                <h2 className="text-4xl font-black text-blue-400 tracking-wider uppercase drop-shadow-[0_0_25px_rgba(96,165,250,0.6)]">
-                  Fim de Partida
-                </h2>
-                <p className="text-slate-200 text-sm font-medium">Partida encerrada.</p>
-              </>
-            )}
-          </div>
-        </div>
-      )}
       {/* 1. TOPO: HEADER STATUS & AÇÕES RÁPIDAS */}
       <header className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 backdrop-blur-md">
         <div className="flex items-center gap-2">
@@ -716,15 +655,6 @@ export const CartaDuoGame: React.FC<CartaDuoGameProps> = ({
             aria-label="Controle de Som"
           >
             {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
-          </button>
-
-          <button
-            onClick={toggleBgm}
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-750 text-slate-300 transition-colors text-xs font-bold"
-            title={bgmPlaying ? 'Desligar Trilha Sonora' : 'Ligar Trilha Sonora'}
-            aria-label="Controle de Trilha Sonora"
-          >
-            {bgmPlaying ? '🎵' : '🔇'}
           </button>
 
           <button
