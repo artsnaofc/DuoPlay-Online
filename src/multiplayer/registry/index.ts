@@ -9,6 +9,7 @@ import React from 'react';
 import { TicTacToeGame } from '@/games/tic-tac-toe/TicTacToeGame';
 import { CartaDuoGame } from '@/games/carta-duo/CartaDuoGame';
 import { SnakeGame } from '@/games/snake/SnakeGame';
+import { HangmanGame } from '@/games/hangman/HangmanGame';
 
 // Caminhos estáticos públicos (/images/...) para garantir funcionamento robusto na Vercel em produção
 const ticTacToeCover = '/images/tic_tac_toe_cover_1791476928538.jpg';
@@ -158,12 +159,15 @@ const REGISTRY: Record<string, GameDefinition> = {
       'Placar integrado ao perfil do jogador',
       'Dicas temáticas baseadas na partida',
     ],
-    isAvailable: false,
+    isAvailable: true,
     coverImage: hangmanCover,
+    component: HangmanGame,
     config: {
       category_label: 'Palavras',
-      requires_timer: true,
+      requires_timer: false,
       max_mistakes: 6,
+      rounds: 5,
+      mode: 'alternating',
     },
   },
   'adedonha': {
