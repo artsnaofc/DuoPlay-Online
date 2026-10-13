@@ -22,9 +22,12 @@ export const HangmanGame: React.FC<{matchId:string;onLeave:()=>void}> = ({matchI
   const [busy,setBusy] = useState(false);
   const [message,setMessage] = useState('');
   const me = user?.id ?? '';
-  const isSetter = state?.setter_id === me;
-  const isGuesser = state?.guesser_id === me;
   const phase = state?.phase ?? 'choose_word';
+  const roundForRole = state?.round ?? 1;
+  const mySlot = myPlayer?.slot ?? 0;
+  const setterSlot = roundForRole % 2 === 1 ? 1 : 2;
+  const isSetter = state?.setter_id ? state.setter_id === me : mySlot === setterSlot;
+  const isGuesser = state?.guesser_id ? state.guesser_id === me : mySlot !== 0 && mySlot !== setterSlot;
   const used = state?.guessed_letters ?? [];
   const scores = state?.scores ?? {};
   const submit = async (type:string,payload:Record<string,unknown>) => {
