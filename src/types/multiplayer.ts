@@ -142,3 +142,27 @@ export interface ApiResponse<T = unknown> {
     details?: Record<string, unknown>;
   } | null;
 }
+
+
+// ============================================================================
+// Tipos de domínio do Jogo da Forca (hangman) — rodadas alternadas
+// ============================================================================
+
+export type HangmanPhase = 'choose_word' | 'guessing' | 'finished';
+export interface HangmanState {
+  round: number;
+  phase: HangmanPhase;
+  category?: string;
+  setter_id?: UserId;
+  guesser_id?: UserId;
+  masked_word?: string;
+  word_length?: number;
+  guessed_letters?: string[];
+  mistakes?: number;
+  max_mistakes?: number;
+  scores?: Record<UserId, number>;
+  last_round_winner_id?: UserId | null;
+  revealed_word?: string | null;
+}
+export interface HangmanSetWordPayload { word: string; category: string; }
+export interface HangmanGuessLetterPayload { letter: string; }
